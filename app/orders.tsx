@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-nati
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
+import { Trash2 } from 'lucide-react-native';
 
 interface OrderItem {
   name: string;
@@ -33,7 +34,6 @@ export default function OrdersScreen() {
       const savedOrders = await AsyncStorage.getItem('orders');
       if (savedOrders) {
         const parsedOrders = JSON.parse(savedOrders);
-        // Sort orders by timestamp, most recent first
         parsedOrders.sort((a: Order, b: Order) => b.timestamp - a.timestamp);
         setOrders(parsedOrders);
       }
@@ -50,6 +50,16 @@ export default function OrdersScreen() {
 
   const viewOrder = (orderId: string) => {
     router.push(`/order-view/${orderId}`);
+  };
+
+  const deleteOrder = async (orderId: string) => {
+    try {
+      const updatedOrders = orders.filter(order => order.id !== orderId);
+      await AsyncStorage.setItem('orders', JSON.stringify(updatedOrders));
+      setOrders(updatedOrders);
+    } catch (error) {
+      console.error('Error deleting order:', error);
+    }
   };
 
   const clearAllOrders = async () => {
@@ -92,25 +102,31 @@ export default function OrdersScreen() {
       ) : (
         <ScrollView style={styles.ordersList}>
           {orders.map((order) => (
-            <TouchableOpacity
-              key={order.id}
-              style={styles.orderCard}
-              onPress={() => viewOrder(order.id)}>
-              <View style={styles.orderHeader}>
-                <Text style={styles.orderType}>
-                  {order.type === 'dine-in' ? `Table ${order.number}` : `Takeaway #${order.number}`}
-                </Text>
-                <Text style={styles.orderTotal}>${order.total.toFixed(2)}</Text>
-              </View>
-              <Text style={styles.orderTime}>{formatDate(order.timestamp)}</Text>
-              <View style={styles.itemsList}>
-                {order.items.map((item, index) => (
-                  <Text key={index} style={styles.itemText}>
-                    {item.name} x {item.quantity}
+            <View key={order.id} style={styles.orderCard}>
+              <TouchableOpacity
+                style={styles.orderContent}
+                onPress={() => viewOrder(order.id)}>
+                <View style={styles.orderHeader}>
+                  <Text style={styles.orderType}>
+                    {order.type === 'dine-in' ? `Table ${order.number}` : `Takeaway #${order.number}`}
                   </Text>
-                ))}
-              </View>
-            </TouchableOpacity>
+                  <Text style={styles.orderTotal}>${order.total.toFixed(2)}</Text>
+                </View>
+                <Text style={styles.orderTime}>{formatDate(order.timestamp)}</Text>
+                <View style={styles.itemsList}>
+                  {order.items.map((item, index) => (
+                    <Text key={index} style={styles.itemText}>
+                      {item.name} x {item.quantity}
+                    </Text>
+                  ))}
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={() => deleteOrder(order.id)}>
+                <Trash2 color="#fff" size={20} />
+              </TouchableOpacity>
+            </View>
           ))}
         </ScrollView>
       )}
@@ -152,16 +168,12 @@ const styles = StyleSheet.create({
   orderCard: {
     backgroundColor: '#1e1e1e',
     borderRadius: 12,
-    padding: 16,
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    flexDirection: 'row',
+  },
+  orderContent: {
+    flex: 1,
+    padding: 16,
   },
   orderHeader: {
     flexDirection: 'row',
@@ -193,6 +205,14 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     marginBottom: 4,
+  },
+  deleteButton: {
+    backgroundColor: '#ff4444',
+    width: 50,
+    borderTopRightRadius: 12,
+    borderBottomRightRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   emptyState: {
     flex: 1,

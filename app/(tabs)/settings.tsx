@@ -6,12 +6,17 @@ interface MenuItem {
   id: string;
   name: string;
   price: number;
-  category: string;
+  category: 'drinks' | 'food' | 'cocktails' | 'indian';
 }
 
 export default function SettingsScreen() {
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [newItem, setNewItem] = useState({ id: '', name: '', price: '', category: '' });
+  const [newItem, setNewItem] = useState({
+    id: '',
+    name: '',
+    price: '',
+    category: 'food' as MenuItem['category']
+  });
 
   useEffect(() => {
     loadMenuItems();
@@ -38,11 +43,13 @@ export default function SettingsScreen() {
     try {
       await AsyncStorage.setItem('menuItems', JSON.stringify(updatedItems));
       setMenuItems(updatedItems);
-      setNewItem({ id: '', name: '', price: '', category: '' });
+      setNewItem({ id: '', name: '', price: '', category: 'food' });
     } catch (error) {
       console.error('Error saving menu item:', error);
     }
   };
+
+  const categories: MenuItem['category'][] = ['drinks', 'food', 'cocktails', 'indian'];
 
   return (
     <ScrollView style={styles.container}>
@@ -73,13 +80,24 @@ export default function SettingsScreen() {
           onChangeText={(text) => setNewItem({ ...newItem, price: text })}
           keyboardType="numeric"
         />
-        <TextInput
-          style={styles.input}
-          placeholder="Category"
-          placeholderTextColor="#666"
-          value={newItem.category}
-          onChangeText={(text) => setNewItem({ ...newItem, category: text })}
-        />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryContainer}>
+          {categories.map((category) => (
+            <TouchableOpacity
+              key={category}
+              style={[
+                styles.categoryButton,
+                newItem.category === category && styles.categoryButtonActive
+              ]}
+              onPress={() => setNewItem({ ...newItem, category })}>
+              <Text style={[
+                styles.categoryButtonText,
+                newItem.category === category && styles.categoryButtonTextActive
+              ]}>
+                {category.charAt(0).toUpperCase() + category.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
         <TouchableOpacity style={styles.button} onPress={saveMenuItem}>
           <Text style={styles.buttonText}>Add Item</Text>
         </TouchableOpacity>
@@ -87,10 +105,22 @@ export default function SettingsScreen() {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Menu Items</Text>
-        {menuItems.map((item) => (
-          <View key={item.id} style={styles.menuItem}>
-            <Text style={styles.itemText}>{item.id} - {item.name}</Text>
-            <Text style={styles.itemText}>${item.price.toFixed(2)}</Text>
+        {categories.map((category) => (
+          <View key={category}>
+            <Text style={styles.categoryTitle}>
+              {category.charAt(0).toUpperCase() + category.slice(1)} Menu
+            </Text>
+            {menuItems
+              .filter((item) => item.category === category)
+              .map((item) => (
+                <View key={item.id} style={styles.menuItem}>
+                  <View style={styles.itemInfo}>
+                    <Text style={styles.itemId}>{item.id}</Text>
+                    <Text style={styles.itemText}>{item.name}</Text>
+                  </View>
+                  <Text style={styles.itemPrice}>${item.price.toFixed(2)}</Text>
+                </View>
+              ))}
           </View>
         ))}
       </View>
@@ -126,6 +156,28 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
   },
+  categoryContainer: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  categoryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#333',
+    marginRight: 8,
+  },
+  categoryButtonActive: {
+    backgroundColor: '#4CAF50',
+  },
+  categoryButtonText: {
+    color: '#888',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  categoryButtonTextActive: {
+    color: '#fff',
+  },
   button: {
     backgroundColor: '#4CAF50',
     padding: 16,
@@ -137,6 +189,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  categoryTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+    marginTop: 16,
+    marginBottom: 8,
+  },
   menuItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -145,8 +204,24 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
   },
+  itemInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  itemId: {
+    color: '#888',
+    fontSize: 14,
+    marginRight: 8,
+    minWidth: 40,
+  },
   itemText: {
     color: '#fff',
     fontSize: 16,
+  },
+  itemPrice: {
+    color: '#4CAF50',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

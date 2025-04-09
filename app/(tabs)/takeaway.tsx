@@ -8,14 +8,7 @@ export default function TakeawayScreen() {
     router.push('/order/takeaway');
   };
 
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Takeaway Orders</Text>
-      <TouchableOpacity style={styles.newOrderButton} onPress={handleNewOrder}>
-        <Text style={styles.buttonText}>New Takeaway Order</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  return (<View style={styles.container}><Text style={styles.title}>Takeaway Orders</Text><TouchableOpacity style={styles.newOrderButton} onPress={handleNewOrder}><Text style={styles.buttonText}>New Takeaway Order</Text></TouchableOpacity></View>);
 }
 
 const styles = StyleSheet.create({

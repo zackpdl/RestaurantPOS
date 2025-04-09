@@ -8,7 +8,7 @@ interface MenuItem {
   id: string;
   name: string;
   price: number;
-  category: string;
+  category: 'drinks' | 'food' | 'cocktails' | 'indian';
 }
 
 interface OrderItem extends MenuItem {
@@ -20,7 +20,8 @@ export default function OrderScreen() {
   const router = useRouter();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
-  const [itemNumber, setItemNumber] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<MenuItem['category'] | 'all'>('all');
 
   useEffect(() => {
     loadMenuItems();
@@ -37,34 +38,51 @@ export default function OrderScreen() {
     }
   };
 
-  const addItemByNumber = () => {
-    const item = menuItems.find((item) => item.id === itemNumber);
-    if (item) {
-      const existingItem = orderItems.find((orderItem) => orderItem.id === item.id);
-      if (existingItem) {
-        setOrderItems(
-          orderItems.map((orderItem) =>
-            orderItem.id === item.id
-              ? { ...orderItem, quantity: orderItem.quantity + 1 }
-              : orderItem
-          )
-        );
-      } else {
-        setOrderItems([...orderItems, { ...item, quantity: 1 }]);
-      }
-      setItemNumber('');
+  const addItemBySearch = (item: MenuItem) => {
+    const existingItem = orderItems.find((orderItem) => orderItem.id === item.id);
+    if (existingItem) {
+      setOrderItems(
+        orderItems.map((orderItem) =>
+          orderItem.id === item.id
+            ? { ...orderItem, quantity: orderItem.quantity + 1 }
+            : orderItem
+        )
+      );
     } else {
-      alert('Item not found');
+      setOrderItems([...orderItems, { ...item, quantity: 1 }]);
     }
+    setSearchQuery('');
   };
 
   const removeItem = (itemId: string) => {
     setOrderItems(orderItems.filter((item) => item.id !== itemId));
   };
 
+  const updateQuantity = (itemId: string, change: number) => {
+    setOrderItems(
+      orderItems.map((item) => {
+        if (item.id === itemId) {
+          const newQuantity = item.quantity + change;
+          return newQuantity > 0 ? { ...item, quantity: newQuantity } : item;
+        }
+        return item;
+      }).filter((item) => item.quantity > 0)
+    );
+  };
+
   const getTotal = () => {
     return orderItems.reduce((total, item) => total + item.price * item.quantity, 0);
   };
+
+  const filteredItems = menuItems.filter((item) => {
+    const matchesSearch = 
+      item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === 'all' || item.category === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
+
+  const categories: (MenuItem['category'] | 'all')[] = ['all', 'drinks', 'food', 'cocktails', 'indian'];
 
   const printBill = async () => {
     const orderType = id === 'takeaway' ? 'Takeaway' : `Table ${id}`;
@@ -89,18 +107,14 @@ export default function OrderScreen() {
                 <td>${item.name}</td>
                 <td style="text-align: center;">${item.quantity}</td>
                 <td style="text-align: right;">$${item.price.toFixed(2)}</td>
-                <td style="text-align: right;">$${(item.price * item.quantity).toFixed(
-                  2
-                )}</td>
+                <td style="text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
               </tr>
             `
               )
               .join('')}
             <tr>
               <td colspan="3" style="text-align: right; font-weight: bold;">Total:</td>
-              <td style="text-align: right; font-weight: bold;">$${getTotal().toFixed(
-                2
-              )}</td>
+              <td style="text-align: right; font-weight: bold;">$${getTotal().toFixed(2)}</td>
             </tr>
           </table>
           <hr/>
@@ -113,7 +127,6 @@ export default function OrderScreen() {
       await Print.printAsync({
         html,
       });
-      // Clear order after printing
       setOrderItems([]);
       router.back();
     } catch (error) {
@@ -131,38 +144,78 @@ export default function OrderScreen() {
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.input}
-          placeholder="Enter item number"
+          placeholder="Search by ID or name..."
           placeholderTextColor="#666"
-          value={itemNumber}
-          onChangeText={setItemNumber}
-          keyboardType="numeric"
-          onSubmitEditing={addItemByNumber}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
         />
-        <TouchableOpacity style={styles.addButton} onPress={addItemByNumber}>
-          <Text style={styles.buttonText}>Add</Text>
-        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.orderList}>
-        {orderItems.map((item) => (
-          <View key={item.id} style={styles.orderItem}>
-            <View style={styles.itemInfo}>
-              <Text style={styles.itemName}>{item.name}</Text>
-              <Text style={styles.itemPrice}>
-                ${item.price.toFixed(2)} x {item.quantity}
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.removeButton}
-              onPress={() => removeItem(item.id)}>
-              <Text style={styles.removeButtonText}>Remove</Text>
-            </TouchableOpacity>
-          </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryContainer}>
+        {categories.map((category) => (
+          <TouchableOpacity
+            key={category}
+            style={[
+              styles.categoryButton,
+              selectedCategory === category && styles.categoryButtonActive
+            ]}
+            onPress={() => setSelectedCategory(category)}>
+            <Text style={[
+              styles.categoryButtonText,
+              selectedCategory === category && styles.categoryButtonTextActive
+            ]}>
+              {category.charAt(0).toUpperCase() + category.slice(1)}
+            </Text>
+          </TouchableOpacity>
         ))}
       </ScrollView>
 
-      <View style={styles.totalContainer}>
-        <Text style={styles.totalText}>Total: ${getTotal().toFixed(2)}</Text>
+      <ScrollView style={styles.menuList}>
+        {searchQuery && filteredItems.map((item) => (
+          <TouchableOpacity
+            key={item.id}
+            style={styles.menuItem}
+            onPress={() => addItemBySearch(item)}>
+            <View style={styles.itemInfo}>
+              <Text style={styles.itemId}>{item.id}</Text>
+              <Text style={styles.itemName}>{item.name}</Text>
+            </View>
+            <Text style={styles.itemPrice}>${item.price.toFixed(2)}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      <View style={styles.orderContainer}>
+        <Text style={styles.sectionTitle}>Order Summary</Text>
+        <ScrollView style={styles.orderList}>
+          {orderItems.map((item) => (
+            <View key={item.id} style={styles.orderItem}>
+              <View style={styles.itemInfo}>
+                <Text style={styles.itemName}>{item.name}</Text>
+                <Text style={styles.itemTotal}>
+                  ${(item.price * item.quantity).toFixed(2)}
+                </Text>
+              </View>
+              <View style={styles.quantityControls}>
+                <TouchableOpacity
+                  style={styles.quantityButton}
+                  onPress={() => updateQuantity(item.id, -1)}>
+                  <Text style={styles.quantityButtonText}>-</Text>
+                </TouchableOpacity>
+                <Text style={styles.quantity}>{item.quantity}</Text>
+                <TouchableOpacity
+                  style={styles.quantityButton}
+                  onPress={() => updateQuantity(item.id, 1)}>
+                  <Text style={styles.quantityButtonText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+
+      <View style={styles.footer}>
+        <Text style={styles.total}>Total: ${getTotal().toFixed(2)}</Text>
         <TouchableOpacity
           style={[styles.printButton, { opacity: orderItems.length > 0 ? 1 : 0.5 }]}
           onPress={printBill}
@@ -187,32 +240,40 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   searchContainer: {
-    flexDirection: 'row',
-    marginBottom: 20,
+    marginBottom: 12,
   },
   input: {
-    flex: 1,
     backgroundColor: '#333',
     color: '#fff',
     padding: 12,
     borderRadius: 8,
+  },
+  categoryContainer: {
+    marginBottom: 12,
+  },
+  categoryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#333',
     marginRight: 8,
   },
-  addButton: {
+  categoryButtonActive: {
     backgroundColor: '#4CAF50',
-    padding: 12,
-    borderRadius: 8,
-    justifyContent: 'center',
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
+  categoryButtonText: {
+    color: '#888',
+    fontSize: 14,
     fontWeight: 'bold',
   },
-  orderList: {
-    flex: 1,
+  categoryButtonTextActive: {
+    color: '#fff',
   },
-  orderItem: {
+  menuList: {
+    maxHeight: 200,
+    marginBottom: 12,
+  },
+  menuItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -223,41 +284,99 @@ const styles = StyleSheet.create({
   },
   itemInfo: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  itemId: {
+    color: '#888',
+    fontSize: 14,
+    marginRight: 8,
+    minWidth: 40,
   },
   itemName: {
     color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    flex: 1,
   },
   itemPrice: {
-    color: '#888',
+    color: '#4CAF50',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  orderContainer: {
+    flex: 1,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  orderList: {
+    flex: 1,
+  },
+  orderItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#1e1e1e',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  itemTotal: {
+    color: '#4CAF50',
+    fontSize: 14,
     marginTop: 4,
   },
-  removeButton: {
-    backgroundColor: '#ff4444',
-    padding: 8,
-    borderRadius: 4,
+  quantityControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 4,
   },
-  removeButtonText: {
+  quantityButton: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#4CAF50',
+    borderRadius: 6,
+  },
+  quantityButtonText: {
     color: '#fff',
-    fontSize: 14,
+    fontSize: 18,
+    fontWeight: 'bold',
   },
-  totalContainer: {
+  quantity: {
+    color: '#fff',
+    fontSize: 16,
+    marginHorizontal: 12,
+    minWidth: 24,
+    textAlign: 'center',
+  },
+  footer: {
     borderTopWidth: 1,
     borderTopColor: '#333',
     paddingTop: 16,
-    marginTop: 16,
+    gap: 16,
   },
-  totalText: {
-    color: '#fff',
-    fontSize: 20,
+  total: {
+    fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 16,
+    color: '#fff',
+    textAlign: 'right',
   },
   printButton: {
     backgroundColor: '#2196F3',
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
 });
