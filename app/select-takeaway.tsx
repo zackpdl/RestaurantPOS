@@ -1,23 +1,93 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useState, useEffect } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getOrderStatus } from './utils/orderStore';
 
 export default function SelectTakeawayScreen() {
   const router = useRouter();
-  const orders = Array.from({ length: 5 }, (_, i) => i + 1);
+  const totalOrders = 50;
+  const [occupiedOrders, setOccupiedOrders] = useState<number[]>([]);
+  const [activeOrders, setActiveOrders] = useState<any[]>([]);
+
+  useEffect(() => {
+    loadOccupiedOrders();
+    loadActiveOrders();
+  }, []);
+
+  const loadActiveOrders = async () => {
+    try {
+      const orders = await AsyncStorage.getItem('orders');
+      if (orders) {
+        const parsedOrders = JSON.parse(orders);
+        const activeOrders = parsedOrders.filter((order: any) => !order.isPaid);
+        setActiveOrders(activeOrders);
+      }
+    } catch (error) {
+      console.error('Error loading active orders:', error);
+    }
+  };
+
+  const handleOrderSelect = (orderNumber: number) => {
+    if (occupiedOrders.includes(orderNumber)) {
+      alert('This order number is currently in use');
+      return;
+    }
+
+    const hasActiveOrder = activeOrders.some(
+      (order) => order.orderNumber === orderNumber.toString() && !order.isPaid
+    );
+
+    if (hasActiveOrder) {
+      alert('This order number already has an active order');
+      return;
+    }
+
+    router.push(`/order/takeaway/${orderNumber}`);
+  };
+
+  const loadOccupiedOrders = async () => {
+    const status = await getOrderStatus();
+    const occupied = status
+      .filter((s: any) => s.type === 'takeaway' && s.isOccupied)
+      .map((s: any) => s.number);
+    setOccupiedOrders(occupied);
+  };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Select Takeaway Number</Text>
-      <ScrollView contentContainerStyle={styles.ordersGrid}>
-        {orders.map((order) => (
-          <TouchableOpacity
-            key={order}
-            style={styles.orderButton}
-            onPress={() => router.push(`/order/takeaway/${order}`)}>
-            <Text style={styles.orderNumber}>{order}</Text>
-            <Text style={styles.orderText}>Takeaway</Text>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.push('/')}>
+          <Text style={styles.backButtonText}>← Back to Main Menu</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Select Takeaway Number</Text>
+      </View>
+      
+      <ScrollView contentContainerStyle={styles.orderGrid}>
+        {[...Array(totalOrders)].map((_, index) => {
+          const orderNumber = index + 1;
+          const isOccupied = occupiedOrders.includes(orderNumber);
+          
+          return (
+            <TouchableOpacity
+              key={orderNumber}
+              style={[
+                styles.orderButton,
+                isOccupied && styles.orderButtonOccupied
+              ]}
+              onPress={() => handleOrderSelect(orderNumber)}
+              disabled={isOccupied}>
+              <Text style={[
+                styles.orderButtonText,
+                isOccupied && styles.orderButtonTextOccupied
+              ]}>
+                Order {orderNumber}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
     </View>
   );
@@ -34,37 +104,50 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 20,
+    textAlign: 'center',
   },
-  ordersGrid: {
+  orderGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: 16,
+    justifyContent: 'center',
+    gap: 12,
+    paddingBottom: 20,
   },
   orderButton: {
-    width: '30%',
+    width: '22%',
     aspectRatio: 1,
-    backgroundColor: '#2196F3',
+    backgroundColor: '#333',
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    margin: 4,
   },
-  orderNumber: {
-    fontSize: 32,
-    fontWeight: 'bold',
+  orderButtonOccupied: {
+    backgroundColor: '#666',
+    opacity: 0.5,
+  },
+  orderButtonText: {
     color: '#fff',
-  },
-  orderText: {
     fontSize: 16,
-    color: '#fff',
-    opacity: 0.8,
+    fontWeight: 'bold',
+  },
+  orderButtonTextOccupied: {
+    color: '#ccc',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    position: 'absolute',
+    left: 0,
+    padding: 10,
+    zIndex: 1,
+  },
+  backButtonText: {
+    color: '#4CAF50',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

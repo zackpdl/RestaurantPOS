@@ -1,21 +1,24 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Print from 'expo-print';
 
 interface OrderItem {
+  id: string;
   name: string;
-  quantity: number;
   price: number;
+  quantity: number;
+  category: string;
 }
 
 interface Order {
   id: string;
   type: 'dine-in' | 'takeaway';
-  number: number;
+  tableNumber?: string;
   items: OrderItem[];
   total: number;
-  timestamp: number;
+  timestamp: string;
 }
 
 export default function OrderViewScreen() {
@@ -25,7 +28,7 @@ export default function OrderViewScreen() {
 
   useEffect(() => {
     loadOrder();
-  }, [id]);
+  }, []);
 
   const loadOrder = async () => {
     try {
@@ -42,6 +45,56 @@ export default function OrderViewScreen() {
     }
   };
 
+  const printOrder = async () => {
+    if (!order) return;
+
+    const html = `
+      <html>
+        <body style="font-family: 'Helvetica'; padding: 20px;">
+          <h1 style="text-align: center;">Restaurant Name</h1>
+          <p style="text-align: center;">${order.type === 'dine-in' ? `Table ${order.tableNumber}` : 'Takeaway'}</p>
+          <p style="text-align: center;">Date: ${order.timestamp}</p>
+          <hr/>
+          <table style="width: 100%;">
+            <tr>
+              <th style="text-align: left;">Item</th>
+              <th style="text-align: center;">Qty</th>
+              <th style="text-align: right;">Price</th>
+              <th style="text-align: right;">Total</th>
+            </tr>
+            ${order.items
+              .map(
+                (item) => `
+              <tr>
+                <td>${item.name}</td>
+                <td style="text-align: center;">${item.quantity}</td>
+                <td style="text-align: right;">$${item.price.toFixed(2)}</td>
+                <td style="text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
+              </tr>
+            `
+              )
+              .join('')}
+            <tr>
+              <td colspan="3" style="text-align: right; font-weight: bold;">Total:</td>
+              <td style="text-align: right; font-weight: bold;">$${order.total.toFixed(2)}</td>
+            </tr>
+          </table>
+          <hr/>
+          <p style="text-align: center;">Thank you for your visit!</p>
+        </body>
+      </html>
+    `;
+
+    try {
+      await Print.printAsync({
+        html,
+      });
+    } catch (error) {
+      console.error('Error printing order:', error);
+      alert('Error printing order');
+    }
+  };
+
   if (!order) {
     return (
       <View style={styles.container}>
@@ -53,39 +106,33 @@ export default function OrderViewScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Order Summary</Text>
-        <Text style={styles.subtitle}>
-          {order.type === 'dine-in' ? `Table ${order.number}` : `Takeaway #${order.number}`}
+        <Text style={styles.title}>Order Details</Text>
+        <TouchableOpacity style={styles.printButton} onPress={printOrder}>
+          <Text style={styles.buttonText}>Print</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.orderInfo}>
+        <Text style={styles.orderType}>
+          {order.type === 'dine-in' ? `Table ${order.tableNumber}` : 'Takeaway'}
         </Text>
-        <Text style={styles.timestamp}>
-          {new Date(order.timestamp).toLocaleString()}
-        </Text>
+        <Text style={styles.timestamp}>{order.timestamp}</Text>
       </View>
 
       <ScrollView style={styles.itemsList}>
-        {order.items.map((item, index) => (
-          <View key={index} style={styles.item}>
+        {order.items.map((item) => (
+          <View key={item.id} style={styles.itemRow}>
             <View style={styles.itemInfo}>
               <Text style={styles.itemName}>{item.name}</Text>
-              <Text style={styles.itemQuantity}>Quantity: {item.quantity}</Text>
+              <Text style={styles.itemQuantity}>x{item.quantity}</Text>
             </View>
-            <Text style={styles.itemPrice}>
-              ${(item.price * item.quantity).toFixed(2)}
-            </Text>
+            <Text style={styles.itemPrice}>${(item.price * item.quantity).toFixed(2)}</Text>
           </View>
         ))}
       </ScrollView>
 
       <View style={styles.footer}>
-        <View style={styles.totalContainer}>
-          <Text style={styles.totalLabel}>Total</Text>
-          <Text style={styles.totalAmount}>${order.total.toFixed(2)}</Text>
-        </View>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.push('/')}>
-          <Text style={styles.backButtonText}>Back to Main Page</Text>
-        </TouchableOpacity>
+        <Text style={styles.total}>Total: ${order.total.toFixed(2)}</Text>
       </View>
     </View>
   );
@@ -98,84 +145,81 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   header: {
-    marginBottom: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 8,
   },
-  subtitle: {
+  orderInfo: {
+    marginBottom: 20,
+  },
+  orderType: {
     fontSize: 18,
-    color: '#4CAF50',
-    marginBottom: 4,
+    color: '#fff',
+    fontWeight: 'bold',
   },
   timestamp: {
-    fontSize: 14,
     color: '#888',
+    marginTop: 4,
   },
   itemsList: {
     flex: 1,
   },
-  item: {
+  itemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#1e1e1e',
+    backgroundColor: '#333',
     padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
+    borderRadius: 8,
+    marginBottom: 8,
   },
   itemInfo: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   itemName: {
-    fontSize: 16,
-    fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 4,
+    fontSize: 16,
+    flex: 1,
   },
   itemQuantity: {
-    fontSize: 14,
     color: '#888',
+    fontSize: 16,
   },
   itemPrice: {
+    color: '#4CAF50',
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#4CAF50',
   },
   footer: {
     borderTopWidth: 1,
     borderTopColor: '#333',
     paddingTop: 16,
-    gap: 16,
+    marginTop: 16,
   },
-  totalContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  totalLabel: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  totalAmount: {
+  total: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#4CAF50',
-  },
-  backButton: {
-    backgroundColor: '#2196F3',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  backButtonText: {
     color: '#fff',
-    fontSize: 18,
+    textAlign: 'right',
+  },
+  printButton: {
+    backgroundColor: '#2196F3',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
     fontWeight: 'bold',
   },
 });

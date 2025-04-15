@@ -4,14 +4,21 @@ import { StatusBar } from 'expo-status-bar';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 
 export default function RootLayout() {
-  useFrameworkReady();
-
   return (
-    <>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      <StatusBar style="auto" />
-    </>
+    <Stack>
+      <Stack.Screen 
+        name="index" 
+        options={{ 
+          title: 'Restaurant POS',
+          headerShown: false 
+        }} 
+      />
+      <Stack.Screen 
+        name="tabs" 
+        options={{ 
+          headerShown: false 
+        }} 
+      />
+    </Stack>
   );
 }
