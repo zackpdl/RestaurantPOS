@@ -1,8 +1,9 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
+import { connectToDatabase } from '../lib/mongodb';
+import Order from '../models/Order';
 
 
 interface OrderItem {
@@ -22,6 +23,7 @@ interface Order {
   timestamp: string;
 }
 
+
 export default function OrdersScreen() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
@@ -30,9 +32,42 @@ export default function OrdersScreen() {
     loadOrders();
   }, []);
 
+  const loadOrders = async () => {
+    try {
+      await connectToDatabase();
+      const data = await Order.find().sort({ timestamp: -1 });
+      setOrders(data);
+    } catch (error) {
+      console.error('Error loading orders:', error);
+      Alert.alert('Error', 'Failed to load orders');
+    }
+  };
+
+  const deleteOrder = async (orderId: string) => {
+    Alert.alert('Delete Order', 'Are you sure you want to delete this order?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await connectToDatabase();
+            await Order.findOneAndDelete({ id: orderId });
+            loadOrders();
+            Alert.alert('Success', 'Order deleted successfully');
+          } catch (error) {
+            console.error('Delete error:', error);
+            Alert.alert('Error', 'Failed to delete order');
+          }
+        },
+      },
+    ]);
+  };
+
   const clearAllData = async () => {
     try {
-      await AsyncStorage.clear();
+      await connectToDatabase();
+      await Order.deleteMany({});
       setOrders([]);
       Alert.alert('Success', 'All data has been cleared');
     } catch (error) {
@@ -109,37 +144,11 @@ export default function OrdersScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Step 1: Get current orders
-              const savedOrders = await AsyncStorage.getItem('orders');
-              if (!savedOrders) return;
-
-              const allOrders = JSON.parse(savedOrders);
-              const orderToDelete = allOrders.find((o: Order) => o.id === orderId);
-              if (!orderToDelete) return;
-
-              // Update orders
-              const updatedOrders = allOrders.filter((order: Order) => order.id !== orderId);
-              await AsyncStorage.setItem('orders', JSON.stringify(updatedOrders));
-              setOrders(updatedOrders);
-
-              // Update order status for both types
-              const orderStatusStr = await AsyncStorage.getItem('orderStatus');
-              if (orderStatusStr) {
-                const currentStatus = JSON.parse(orderStatusStr);
-                const updatedStatus = currentStatus.map((s: any) => {
-                  if (s.type === orderToDelete.type) {
-                    if (orderToDelete.type === 'dine-in' && s.number?.toString() === orderToDelete.tableNumber) {
-                      return { ...s, isOccupied: false };
-                    }
-                    if (orderToDelete.type === 'takeaway' && s.number?.toString() === orderToDelete.id) {
-                      return { ...s, isOccupied: false };
-                    }
-                  }
-                  return s;
-                });
-                await AsyncStorage.setItem('orderStatus', JSON.stringify(updatedStatus));
-              }
-
+              await connectToDatabase();
+              await Order.findOneAndDelete({ id: orderId });
+              
+              // Refresh orders
+              loadOrders();
               Alert.alert('Success', 'Order deleted successfully');
             } catch (error) {
               console.error('Delete error:', error);

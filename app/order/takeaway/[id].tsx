@@ -1,8 +1,9 @@
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Print from 'expo-print';
+import { supabase } from '../../../lib/supabase';
 
 interface MenuItem {
   id: string;
@@ -137,44 +138,36 @@ export default function OrderScreen() {
 
   const saveOrder = async () => {
     try {
-      const timestamp = new Date().toLocaleString();
+      const timestamp = new Date().toISOString();
       const total = getTotal();
       
-      const newOrder = {
-        id: id,
-        type: 'takeaway',
-        items: orderItems,
-        total: total,
-        timestamp: timestamp
-      };
-
-      // Get existing orders
-      const savedOrders = await AsyncStorage.getItem('orders');
-      const allOrders = savedOrders ? JSON.parse(savedOrders) : [];
-      
-      // Add new order
-      allOrders.push(newOrder);
-      await AsyncStorage.setItem('orders', JSON.stringify(allOrders));
-
-      // Update order status
-      const orderStatus = await AsyncStorage.getItem('orderStatus');
-      if (orderStatus) {
-        const currentStatus = JSON.parse(orderStatus);
-        const updatedStatus = currentStatus.map((s: any) => {
-          if (s.type === 'takeaway' && s.number?.toString() === id) {
-            return { ...s, isOccupied: true };
-          }
-          return s;
+      // Save order
+      const { error: orderError } = await supabase
+        .from('orders')
+        .insert({
+          order_id: id,
+          type: 'takeaway',
+          items: orderItems,
+          total: total,
+          timestamp: timestamp
         });
-        await AsyncStorage.setItem('orderStatus', JSON.stringify(updatedStatus));
-      }
 
-      // Fix the alert calls
-      alert('Success: Order saved successfully');
+      if (orderError) throw orderError;
+
+      // Update status
+      const { error: statusError } = await supabase
+        .from('order_status')
+        .update({ is_occupied: true })
+        .eq('type', 'takeaway')
+        .eq('number', id);
+
+      if (statusError) throw statusError;
+
+      Alert.alert('Success', 'Order saved successfully');
       router.back();
     } catch (error) {
       console.error('Error saving order:', error);
-      alert('Error: Failed to save order');
+      Alert.alert('Error', 'Failed to save order');
     }
   };
 
@@ -259,7 +252,7 @@ export default function OrderScreen() {
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.total}>Total: ${getTotal().toFixed(2)}</Text>
+        <Text style={{ color: '#4CAF50', fontSize: 20, fontWeight: 'bold' }}>Total: ${getTotal().toFixed(2)}</Text>
         <View style={styles.buttonGroup}>
           <TouchableOpacity
             style={[styles.actionButton, { opacity: orderItems.length > 0 ? 1 : 0.5 }]}
