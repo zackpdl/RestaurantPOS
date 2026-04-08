@@ -22,4 +22,8 @@ const OrderSchema = new mongoose.Schema({
   }
 });
 
-export default mongoose.models.Order || mongoose.model('Order', OrderSchema);
+const existingOrderModel =
+  (mongoose as unknown as { models?: Record<string, unknown> }).models?.Order ??
+  null;
+
+export default existingOrderModel || mongoose.model('Order', OrderSchema);

@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetchOrders } from '../../lib/pos/orderUtils';
 import { useRouter } from 'expo-router';
 
 interface OrderItem {
@@ -12,10 +12,10 @@ interface OrderItem {
 interface Order {
   id: string;
   type: 'dine-in' | 'takeaway';
-  number: number;
+  tableNumber?: string;
   items: OrderItem[];
   total: number;
-  timestamp: number;
+  timestamp: string;
 }
 
 export default function OrdersScreen() {
@@ -28,16 +28,14 @@ export default function OrdersScreen() {
 
   const loadOrders = async () => {
     try {
-      const savedOrders = await AsyncStorage.getItem('orders');
-      if (savedOrders) {
-        setOrders(JSON.parse(savedOrders));
-      }
+      const data = await fetchOrders();
+      setOrders(data as any);
     } catch (error) {
       console.error('Error loading orders:', error);
     }
   };
 
-  const formatDate = (timestamp: number) => {
+  const formatDate = (timestamp: number | string) => {
     return new Date(timestamp).toLocaleString();
   };
 
@@ -56,7 +54,9 @@ export default function OrdersScreen() {
             onPress={() => viewOrder(order.id)}>
             <View style={styles.orderHeader}>
               <Text style={styles.orderType}>
-                {order.type === 'dine-in' ? `Table ${order.number}` : `Takeaway #${order.number}`}
+                {order.type === 'dine-in'
+                  ? `Table ${order.tableNumber}`
+                  : `Takeaway #${order.tableNumber}`}
               </Text>
               <Text style={styles.orderTotal}>${order.total.toFixed(2)}</Text>
             </View>

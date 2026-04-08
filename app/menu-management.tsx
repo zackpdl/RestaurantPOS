@@ -1,23 +1,17 @@
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-interface MenuItem {
-  id: string;
-  name: string;
-  price: number;
-  category: 'drinks' | 'food' | 'cocktails' | 'indian';
-}
+import { MenuItem } from '../lib/pos/menuData';
+import { loadSelectedRestaurant } from '../lib/pos/storage';
+import { loadMenu, saveMenu } from '../lib/pos/menuStore';
 
 export default function MenuManagementScreen() {
-  const router = useRouter();
+  const [restaurant, setRestaurant] = useState<string | null>(null);
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [newItem, setNewItem] = useState<MenuItem>({
     id: '',
     name: '',
     price: 0,
-    category: 'food'
+    category: 'main'
   });
 
   useEffect(() => {
@@ -26,10 +20,11 @@ export default function MenuManagementScreen() {
 
   const loadMenuItems = async () => {
     try {
-      const savedItems = await AsyncStorage.getItem('menuItems');
-      if (savedItems) {
-        setMenuItems(JSON.parse(savedItems));
-      }
+      const selected = await loadSelectedRestaurant();
+      if (!selected) return;
+      setRestaurant(selected);
+      const items = await loadMenu(selected);
+      setMenuItems(items);
     } catch (error) {
       console.error('Error loading menu items:', error);
     }
@@ -41,11 +36,12 @@ export default function MenuManagementScreen() {
       return;
     }
 
+    if (!restaurant) return;
     try {
       const updatedItems = [...menuItems, newItem];
-      await AsyncStorage.setItem('menuItems', JSON.stringify(updatedItems));
+      await saveMenu(restaurant, updatedItems);
       setMenuItems(updatedItems);
-      setNewItem({ id: '', name: '', price: 0, category: 'food' });
+      setNewItem({ id: '', name: '', price: 0, category: 'main' });
       Alert.alert('Success', 'Menu item added successfully');
     } catch (error) {
       console.error('Error saving menu item:', error);
@@ -54,9 +50,10 @@ export default function MenuManagementScreen() {
   };
 
   const deleteMenuItem = async (itemId: string) => {
+    if (!restaurant) return;
     try {
       const updatedItems = menuItems.filter(item => item.id !== itemId);
-      await AsyncStorage.setItem('menuItems', JSON.stringify(updatedItems));
+      await saveMenu(restaurant, updatedItems);
       setMenuItems(updatedItems);
     } catch (error) {
       console.error('Error deleting menu item:', error);
@@ -64,9 +61,30 @@ export default function MenuManagementScreen() {
     }
   };
 
+  const updatePrice = (itemId: string, priceText: string) => {
+    const price = Number(priceText);
+    setMenuItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? { ...item, price: Number.isNaN(price) ? 0 : price } : item
+      )
+    );
+  };
+
+  const saveAllChanges = async () => {
+    if (!restaurant) return;
+    try {
+      await saveMenu(restaurant, menuItems);
+      Alert.alert('Saved', 'Menu updated successfully');
+    } catch (error) {
+      console.error('Error saving menu:', error);
+      Alert.alert('Error', 'Failed to save menu');
+    }
+  };
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Menu Management</Text>
+      {restaurant && <Text style={styles.subtitle}>{restaurant}</Text>}
 
       <View style={styles.inputContainer}>
         <TextInput
@@ -92,7 +110,7 @@ export default function MenuManagementScreen() {
           onChangeText={(text) => setNewItem({ ...newItem, price: parseFloat(text) || 0 })}
         />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryContainer}>
-          {['drinks', 'food', 'cocktails', 'indian'].map((category) => (
+          {['drinks', 'main', 'indian'].map((category) => (
             <TouchableOpacity
               key={category}
               style={[
@@ -117,7 +135,12 @@ export default function MenuManagementScreen() {
             <View style={styles.itemInfo}>
               <Text style={styles.itemId}>{item.id}</Text>
               <Text style={styles.itemName}>{item.name}</Text>
-              <Text style={styles.itemPrice}>${item.price.toFixed(2)}</Text>
+              <TextInput
+                style={styles.priceInput}
+                value={String(item.price)}
+                onChangeText={(text) => updatePrice(item.id, text)}
+                keyboardType="numeric"
+              />
             </View>
             <TouchableOpacity
               style={styles.deleteButton}
@@ -127,6 +150,9 @@ export default function MenuManagementScreen() {
           </View>
         ))}
       </ScrollView>
+      <TouchableOpacity style={styles.saveButton} onPress={saveAllChanges}>
+        <Text style={styles.buttonText}>Save Menu</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -142,6 +168,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 20,
+  },
+  subtitle: {
+    color: '#aaa',
+    marginBottom: 12,
   },
   inputContainer: {
     gap: 12,
@@ -212,6 +242,15 @@ const styles = StyleSheet.create({
     color: '#4CAF50',
     fontSize: 16,
   },
+  priceInput: {
+    backgroundColor: '#1e1e1e',
+    color: '#fff',
+    padding: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#333',
+    width: 90,
+  },
   deleteButton: {
     backgroundColor: '#f44336',
     padding: 8,
@@ -220,5 +259,12 @@ const styles = StyleSheet.create({
   deleteButtonText: {
     color: '#fff',
     fontSize: 14,
+  },
+  saveButton: {
+    backgroundColor: '#4CAF50',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 12,
   },
 });

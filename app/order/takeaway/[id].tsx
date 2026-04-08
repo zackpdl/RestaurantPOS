@@ -2,14 +2,16 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert 
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Print from 'expo-print';
-import { supabase } from '../../../lib/supabase';
+import { saveOrder as saveOrderToStorage } from '../../../lib/pos/orderUtils';
+import { setOrderStatus } from '../../../lib/pos/orderStore';
+import { printReceipt } from '../../../lib/pos/printer';
+import { loadSelectedRestaurant } from '../../../lib/pos/storage';
 
 interface MenuItem {
   id: string;
   name: string;
   price: number;
-  category: 'drinks' | 'food' | 'cocktails' | 'indian';
+  category: 'drinks' | 'main' | 'indian';
 }
 
 interface OrderItem extends MenuItem {
@@ -55,10 +57,6 @@ export default function OrderScreen() {
     setSearchQuery('');
   };
 
-  const removeItem = (itemId: string) => {
-    setOrderItems(orderItems.filter((item) => item.id !== itemId));
-  };
-
   const updateQuantity = (itemId: string, change: number) => {
     setOrderItems(
       orderItems.map((item) => {
@@ -83,50 +81,24 @@ export default function OrderScreen() {
     return matchesSearch && matchesCategory;
   });
 
-  const categories: (MenuItem['category'] | 'all')[] = ['all', 'drinks', 'food', 'cocktails', 'indian'];
+  const categories: (MenuItem['category'] | 'all')[] = ['all', 'drinks', 'main', 'indian'];
 
   const printBill = async () => {
     const orderType = id === 'takeaway' ? 'Takeaway' : `Table ${id}`;
-    const html = `
-      <html>
-        <body style="font-family: 'Helvetica'; padding: 20px;">
-          <h1 style="text-align: center;">Restaurant Name</h1>
-          <p style="text-align: center;">${orderType}</p>
-          <p style="text-align: center;">Date: ${new Date().toLocaleString()}</p>
-          <hr/>
-          <table style="width: 100%;">
-            <tr>
-              <th style="text-align: left;">Item</th>
-              <th style="text-align: center;">Qty</th>
-              <th style="text-align: right;">Price</th>
-              <th style="text-align: right;">Total</th>
-            </tr>
-            ${orderItems
-              .map(
-                (item) => `
-              <tr>
-                <td>${item.name}</td>
-                <td style="text-align: center;">${item.quantity}</td>
-                <td style="text-align: right;">$${item.price.toFixed(2)}</td>
-                <td style="text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
-              </tr>
-            `
-              )
-              .join('')}
-            <tr>
-              <td colspan="3" style="text-align: right; font-weight: bold;">Total:</td>
-              <td style="text-align: right; font-weight: bold;">$${getTotal().toFixed(2)}</td>
-            </tr>
-          </table>
-          <hr/>
-          <p style="text-align: center;">Thank you for your visit!</p>
-        </body>
-      </html>
-    `;
-
     try {
-      await Print.printAsync({
-        html,
+      await printReceipt({
+        restaurant: 'Restaurant POS',
+        tableLabel: orderType,
+        headerLine: `Date: ${new Date().toLocaleString()}`,
+        items: orderItems.map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        subtotal: getTotal(),
+        taxEnabled: false,
+        tax: 0,
+        total: getTotal(),
       });
       setOrderItems([]);
       router.back();
@@ -136,32 +108,23 @@ export default function OrderScreen() {
     }
   };
 
-  const saveOrder = async () => {
+  const handleSaveOrder = async () => {
     try {
-      const timestamp = new Date().toISOString();
       const total = getTotal();
-      
-      // Save order
-      const { error: orderError } = await supabase
-        .from('orders')
-        .insert({
-          order_id: id,
-          type: 'takeaway',
-          items: orderItems,
-          total: total,
-          timestamp: timestamp
-        });
+      const restaurant = await loadSelectedRestaurant();
 
-      if (orderError) throw orderError;
+      await saveOrderToStorage({
+        restaurant: restaurant ?? undefined,
+        type: 'takeaway',
+        tableNumber: String(id),
+        items: orderItems,
+        total: total,
+      });
 
-      // Update status
-      const { error: statusError } = await supabase
-        .from('order_status')
-        .update({ is_occupied: true })
-        .eq('type', 'takeaway')
-        .eq('number', id);
-
-      if (statusError) throw statusError;
+      const orderNumber = Number(id);
+      if (!Number.isNaN(orderNumber)) {
+        await setOrderStatus('takeaway', orderNumber, true);
+      }
 
       Alert.alert('Success', 'Order saved successfully');
       router.back();
@@ -256,7 +219,7 @@ export default function OrderScreen() {
         <View style={styles.buttonGroup}>
           <TouchableOpacity
             style={[styles.actionButton, { opacity: orderItems.length > 0 ? 1 : 0.5 }]}
-            onPress={saveOrder}
+            onPress={handleSaveOrder}
             disabled={orderItems.length === 0}>
             <Text style={styles.buttonText}>Save Order</Text>
           </TouchableOpacity>

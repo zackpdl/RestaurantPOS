@@ -1,46 +1,67 @@
-import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
+import { useState } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useEffect } from 'react';
-import { loadMockMenuItems } from './utils/mockData';
+import { supabase } from '../lib/supabase';
+import { saveSession, loadSession } from '../lib/pos/storage';
 
-export default function HomeScreen() {
+export default function LoginScreen() {
   const router = useRouter();
+  const [pin, setPin] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    loadMockMenuItems();
-  }, []);
+  const handleLogin = async () => {
+    if (!pin.trim()) {
+      Alert.alert('PIN required', 'Please enter your PIN.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('pin', pin)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        Alert.alert('Invalid PIN', 'Please try again.');
+        return;
+      }
+
+      await saveSession({ userId: data.id, role: data.role, pin });
+      router.replace('/restaurant-select');
+    } catch (error) {
+      console.error('Login error:', error);
+      const cached = await loadSession();
+      if (cached?.pin === pin) {
+        router.replace('/restaurant-select');
+        return;
+      }
+      Alert.alert('Network error', 'Unable to verify PIN. Try again when online.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
-      <Image
-        source={{ uri: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4' }}
-        style={styles.backgroundImage}
+      <Text style={styles.title}>Restaurant POS</Text>
+      <Text style={styles.subtitle}>Login with PIN</Text>
+
+      <TextInput
+        style={styles.input}
+        placeholder="Enter PIN"
+        placeholderTextColor="#888"
+        value={pin}
+        onChangeText={setPin}
+        keyboardType="number-pad"
+        secureTextEntry
       />
-      <View style={styles.overlay}>
-        <Text style={styles.title}>Welcome to Restaurant POS</Text>
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity
-            style={styles.button}
-            onPress={() => router.push('/select-table')}>
-            <Text style={styles.buttonText}>Dine-In</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.button}
-            onPress={() => router.push('/select-takeaway')}>
-            <Text style={styles.buttonText}>Takeaway</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.button, styles.menuButton]}
-            onPress={() => router.push('/menu-management')}>
-            <Text style={styles.buttonText}>Manage Menu</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.button, styles.ordersButton]}
-            onPress={() => router.push('/orders')}>
-            <Text style={styles.buttonText}>View Orders</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+
+      <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
+        {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Login</Text>}
+      </TouchableOpacity>
     </View>
   );
 }
@@ -48,54 +69,44 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  backgroundImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
+    backgroundColor: '#121212',
     alignItems: 'center',
-    padding: 20,
+    justifyContent: 'center',
+    padding: 24,
   },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 40,
-    textAlign: 'center',
+    marginBottom: 8,
   },
-  buttonContainer: {
+  subtitle: {
+    fontSize: 16,
+    color: '#aaa',
+    marginBottom: 24,
+  },
+  input: {
     width: '100%',
-    maxWidth: 400,
-    gap: 20,
+    maxWidth: 320,
+    backgroundColor: '#1e1e1e',
+    color: '#fff',
+    padding: 14,
+    borderRadius: 10,
+    marginBottom: 16,
+    textAlign: 'center',
+    letterSpacing: 4,
   },
   button: {
+    width: '100%',
+    maxWidth: 320,
     backgroundColor: '#4CAF50',
-    padding: 20,
-    borderRadius: 12,
+    padding: 16,
+    borderRadius: 10,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  menuButton: {
-    backgroundColor: '#FF9800',
-  },
-  ordersButton: {
-    backgroundColor: '#2196F3',
   },
   buttonText: {
     color: '#fff',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: 'bold',
   },
 });

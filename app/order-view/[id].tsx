@@ -1,8 +1,8 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Print from 'expo-print';
+import { fetchOrderById } from '../../lib/pos/orderUtils';
+import { printReceipt } from '../../lib/pos/printer';
 
 interface OrderItem {
   id: string;
@@ -23,71 +23,38 @@ interface Order {
 
 export default function OrderViewScreen() {
   const { id } = useLocalSearchParams();
-  const router = useRouter();
   const [order, setOrder] = useState<Order | null>(null);
 
   useEffect(() => {
-    loadOrder();
-  }, []);
-
-  const loadOrder = async () => {
-    try {
-      const savedOrders = await AsyncStorage.getItem('orders');
-      if (savedOrders) {
-        const orders = JSON.parse(savedOrders);
-        const foundOrder = orders.find((o: Order) => o.id === id);
-        if (foundOrder) {
-          setOrder(foundOrder);
-        }
+    const loadOrder = async () => {
+      try {
+        const foundOrder = await fetchOrderById(String(id));
+        if (foundOrder) setOrder(foundOrder);
+      } catch (error) {
+        console.error('Error loading order:', error);
       }
-    } catch (error) {
-      console.error('Error loading order:', error);
-    }
-  };
+    };
+
+    loadOrder();
+  }, [id]);
 
   const printOrder = async () => {
     if (!order) return;
 
-    const html = `
-      <html>
-        <body style="font-family: 'Helvetica'; padding: 20px;">
-          <h1 style="text-align: center;">Restaurant Name</h1>
-          <p style="text-align: center;">${order.type === 'dine-in' ? `Table ${order.tableNumber}` : 'Takeaway'}</p>
-          <p style="text-align: center;">Date: ${order.timestamp}</p>
-          <hr/>
-          <table style="width: 100%;">
-            <tr>
-              <th style="text-align: left;">Item</th>
-              <th style="text-align: center;">Qty</th>
-              <th style="text-align: right;">Price</th>
-              <th style="text-align: right;">Total</th>
-            </tr>
-            ${order.items
-              .map(
-                (item) => `
-              <tr>
-                <td>${item.name}</td>
-                <td style="text-align: center;">${item.quantity}</td>
-                <td style="text-align: right;">$${item.price.toFixed(2)}</td>
-                <td style="text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
-              </tr>
-            `
-              )
-              .join('')}
-            <tr>
-              <td colspan="3" style="text-align: right; font-weight: bold;">Total:</td>
-              <td style="text-align: right; font-weight: bold;">$${order.total.toFixed(2)}</td>
-            </tr>
-          </table>
-          <hr/>
-          <p style="text-align: center;">Thank you for your visit!</p>
-        </body>
-      </html>
-    `;
-
     try {
-      await Print.printAsync({
-        html,
+      await printReceipt({
+        restaurant: 'Restaurant POS',
+        tableLabel: order.type === 'dine-in' ? `Table ${order.tableNumber}` : 'Takeaway',
+        headerLine: `Date: ${order.timestamp}`,
+        items: order.items.map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        subtotal: order.total,
+        taxEnabled: false,
+        tax: 0,
+        total: order.total,
       });
     } catch (error) {
       console.error('Error printing order:', error);

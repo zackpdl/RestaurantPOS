@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Pressable, FlatList } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetchOrderById, updateOrderById } from '../../../lib/pos/orderUtils';
 import tw from 'twrnc';
 import { Feather } from '@expo/vector-icons';
 
@@ -35,12 +36,8 @@ const EditOrder = () => {
         if (savedMenu) setMenuItems(JSON.parse(savedMenu));
 
         // Load existing order
-        const savedOrders = await AsyncStorage.getItem('orders');
-        if (savedOrders) {
-          const orders = JSON.parse(savedOrders);
-          const existingOrder = orders.find((o: Order) => o.id === id);
-          if (existingOrder) setOrder(existingOrder);
-        }
+        const existingOrder = await fetchOrderById(String(id));
+        if (existingOrder) setOrder(existingOrder);
       } catch (error) {
         console.error('Error loading data:', error);
       }
@@ -53,13 +50,11 @@ const EditOrder = () => {
     if (!order) return;
 
     try {
-      const savedOrders = await AsyncStorage.getItem('orders');
-      let orders = savedOrders ? JSON.parse(savedOrders) : [];
-      
-      // Update existing order
-      orders = orders.map((o: Order) => o.id === order.id ? order : o);
-      
-      await AsyncStorage.setItem('orders', JSON.stringify(orders));
+      await updateOrderById(order.id, {
+        items: order.items,
+        total: order.total,
+        tableNumber: order.tableNumber,
+      });
     } catch (error) {
       console.error('Error saving order:', error);
     }

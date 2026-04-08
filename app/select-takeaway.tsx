@@ -1,8 +1,8 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getOrderStatus } from './utils/orderStore';
+import { getOrderStatus } from '../lib/pos/orderStore';
+import { fetchOrders } from '../lib/pos/orderUtils';
 
 export default function SelectTakeawayScreen() {
   const router = useRouter();
@@ -17,12 +17,9 @@ export default function SelectTakeawayScreen() {
 
   const loadActiveOrders = async () => {
     try {
-      const orders = await AsyncStorage.getItem('orders');
-      if (orders) {
-        const parsedOrders = JSON.parse(orders);
-        const activeOrders = parsedOrders.filter((order: any) => !order.isPaid);
-        setActiveOrders(activeOrders);
-      }
+      const orders = await fetchOrders();
+      const activeOrders = orders.filter((order: any) => !order.isClosed);
+      setActiveOrders(activeOrders);
     } catch (error) {
       console.error('Error loading active orders:', error);
     }
@@ -35,7 +32,7 @@ export default function SelectTakeawayScreen() {
     }
 
     const hasActiveOrder = activeOrders.some(
-      (order) => order.orderNumber === orderNumber.toString() && !order.isPaid
+      (order) => order.orderNumber === orderNumber.toString() && !order.isClosed
     );
 
     if (hasActiveOrder) {

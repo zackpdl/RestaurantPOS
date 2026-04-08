@@ -2,13 +2,13 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Print from 'expo-print';
+import { printReceipt } from '../../lib/pos/printer';
 
 interface MenuItem {
   id: string;
   name: string;
   price: number;
-  category: 'drinks' | 'food' | 'cocktails' | 'indian';
+  category: 'drinks' | 'main' | 'indian';
 }
 
 interface OrderItem extends MenuItem {
@@ -54,10 +54,6 @@ export default function OrderScreen() {
     setSearchQuery('');
   };
 
-  const removeItem = (itemId: string) => {
-    setOrderItems(orderItems.filter((item) => item.id !== itemId));
-  };
-
   const updateQuantity = (itemId: string, change: number) => {
     setOrderItems(
       orderItems.map((item) => {
@@ -82,50 +78,24 @@ export default function OrderScreen() {
     return matchesSearch && matchesCategory;
   });
 
-  const categories: (MenuItem['category'] | 'all')[] = ['all', 'drinks', 'food', 'cocktails', 'indian'];
+  const categories: (MenuItem['category'] | 'all')[] = ['all', 'drinks', 'main', 'indian'];
 
   const printBill = async () => {
     const orderType = id === 'takeaway' ? 'Takeaway' : `Table ${id}`;
-    const html = `
-      <html>
-        <body style="font-family: 'Helvetica'; padding: 20px;">
-          <h1 style="text-align: center;">Restaurant Name</h1>
-          <p style="text-align: center;">${orderType}</p>
-          <p style="text-align: center;">Date: ${new Date().toLocaleString()}</p>
-          <hr/>
-          <table style="width: 100%;">
-            <tr>
-              <th style="text-align: left;">Item</th>
-              <th style="text-align: center;">Qty</th>
-              <th style="text-align: right;">Price</th>
-              <th style="text-align: right;">Total</th>
-            </tr>
-            ${orderItems
-              .map(
-                (item) => `
-              <tr>
-                <td>${item.name}</td>
-                <td style="text-align: center;">${item.quantity}</td>
-                <td style="text-align: right;">$${item.price.toFixed(2)}</td>
-                <td style="text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
-              </tr>
-            `
-              )
-              .join('')}
-            <tr>
-              <td colspan="3" style="text-align: right; font-weight: bold;">Total:</td>
-              <td style="text-align: right; font-weight: bold;">$${getTotal().toFixed(2)}</td>
-            </tr>
-          </table>
-          <hr/>
-          <p style="text-align: center;">Thank you for your visit!</p>
-        </body>
-      </html>
-    `;
-
     try {
-      await Print.printAsync({
-        html,
+      await printReceipt({
+        restaurant: 'Restaurant POS',
+        tableLabel: orderType,
+        headerLine: `Date: ${new Date().toLocaleString()}`,
+        items: orderItems.map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        subtotal: getTotal(),
+        taxEnabled: false,
+        tax: 0,
+        total: getTotal(),
       });
       setOrderItems([]);
       router.back();

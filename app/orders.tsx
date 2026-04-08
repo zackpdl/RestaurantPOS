@@ -1,9 +1,17 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useState, useEffect } from 'react';
-import * as Print from 'expo-print';
-import { connectToDatabase } from '../lib/mongodb';
-import Order from '../models/Order';
+import { useState, useEffect, useMemo } from 'react';
+import {
+  clearOrders,
+  closeOrderById,
+  deleteOrderById,
+  fetchOrders,
+  subscribeToOrders,
+} from '../lib/pos/orderUtils';
+import { printReceipt } from '../lib/pos/printer';
+import { loadSelectedRestaurant, loadSession } from '../lib/pos/storage';
+import { RESTAURANTS } from '../lib/pos/menuData';
+import { setOrderStatus } from '../lib/pos/orderStore';
 
 
 interface OrderItem {
@@ -21,21 +29,47 @@ interface Order {
   items: OrderItem[];
   total: number;
   timestamp: string;
+  isClosed?: boolean;
+  closedAt?: string | null;
 }
 
 
 export default function OrdersScreen() {
   const router = useRouter();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [role, setRole] = useState<'admin' | 'staff' | null>(null);
+  const [selectedRestaurant, setSelectedRestaurant] = useState<string>(RESTAURANTS[0]);
 
   useEffect(() => {
-    loadOrders();
-  }, []);
+    const init = async () => {
+      const session = await loadSession();
+      if (!session) {
+        Alert.alert('Session expired', 'Please login again.');
+        router.replace('/');
+        return;
+      }
+      setRole(session.role);
+      const stored = await loadSelectedRestaurant();
+      if (stored) {
+        setSelectedRestaurant(stored);
+      }
+      await loadOrders(stored ?? selectedRestaurant);
+    };
 
-  const loadOrders = async () => {
+    init();
+  }, [router, selectedRestaurant]);
+
+  useEffect(() => {
+    const unsubscribe = subscribeToOrders(() => {
+      loadOrders(selectedRestaurant);
+    });
+
+    return unsubscribe;
+  }, [selectedRestaurant]);
+
+  const loadOrders = async (restaurant?: string) => {
     try {
-      await connectToDatabase();
-      const data = await Order.find().sort({ timestamp: -1 });
+      const data = await fetchOrders(restaurant);
       setOrders(data);
     } catch (error) {
       console.error('Error loading orders:', error);
@@ -51,9 +85,8 @@ export default function OrdersScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
-            await connectToDatabase();
-            await Order.findOneAndDelete({ id: orderId });
-            loadOrders();
+            await deleteOrderById(orderId);
+            await loadOrders();
             Alert.alert('Success', 'Order deleted successfully');
           } catch (error) {
             console.error('Delete error:', error);
@@ -66,8 +99,7 @@ export default function OrdersScreen() {
 
   const clearAllData = async () => {
     try {
-      await connectToDatabase();
-      await Order.deleteMany({});
+      await clearOrders();
       setOrders([]);
       Alert.alert('Success', 'All data has been cleared');
     } catch (error) {
@@ -76,88 +108,26 @@ export default function OrdersScreen() {
     }
   };
 
-  const loadOrders = async () => {
-    try {
-      const savedOrders = await AsyncStorage.getItem('orders');
-      if (savedOrders) {
-        setOrders(JSON.parse(savedOrders));
-      }
-    } catch (error) {
-      console.error('Error loading orders:', error);
-    }
-  };
-
   const printOrder = async (order: Order) => {
-    const html = `
-      <html>
-        <body style="font-family: 'Helvetica'; padding: 20px;">
-          <h1 style="text-align: center;">Restaurant Name</h1>
-          <p style="text-align: center;">${order.type === 'dine-in' ? `Table ${order.tableNumber}` : 'Takeaway'}</p>
-          <p style="text-align: center;">Date: ${order.timestamp}</p>
-          <hr/>
-          <table style="width: 100%;">
-            <tr>
-              <th style="text-align: left;">Item</th>
-              <th style="text-align: center;">Qty</th>
-              <th style="text-align: right;">Price</th>
-              <th style="text-align: right;">Total</th>
-            </tr>
-            ${order.items
-              .map(
-                (item) => `
-              <tr>
-                <td>${item.name}</td>
-                <td style="text-align: center;">${item.quantity}</td>
-                <td style="text-align: right;">$${item.price.toFixed(2)}</td>
-                <td style="text-align: right;">$${(item.price * item.quantity).toFixed(2)}</td>
-              </tr>
-            `
-              )
-              .join('')}
-            <tr>
-              <td colspan="3" style="text-align: right; font-weight: bold;">Total:</td>
-              <td style="text-align: right; font-weight: bold;">$${order.total.toFixed(2)}</td>
-            </tr>
-          </table>
-          <hr/>
-          <p style="text-align: center;">Thank you for your visit!</p>
-        </body>
-      </html>
-    `;
-
     try {
-      await Print.printAsync({ html });
+      await printReceipt({
+        restaurant: 'Restaurant POS',
+        tableLabel: order.type === 'dine-in' ? `Table ${order.tableNumber}` : 'Takeaway',
+        headerLine: `Date: ${order.timestamp}`,
+        items: order.items.map((item) => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        subtotal: order.total,
+        taxEnabled: false,
+        tax: 0,
+        total: order.total,
+      });
     } catch (error) {
       console.error('Error printing order:', error);
       alert('Error printing order');
     }
-  };
-
-  const deleteOrder = async (orderId: string) => {
-    Alert.alert(
-      'Delete Order',
-      'Are you sure you want to delete this order?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await connectToDatabase();
-              await Order.findOneAndDelete({ id: orderId });
-              
-              // Refresh orders
-              loadOrders();
-              Alert.alert('Success', 'Order deleted successfully');
-            } catch (error) {
-              console.error('Delete error:', error);
-              Alert.alert('Error', 'Failed to delete order');
-            }
-          }
-        }
-      ]
-    );
   };
 
   const editOrder = (order: Order) => {
@@ -176,6 +146,32 @@ export default function OrdersScreen() {
     } as any);
   };
 
+  const handleCloseOrder = async (orderId: string) => {
+    try {
+      const order = orders.find((item) => item.id === orderId);
+      await closeOrderById(orderId);
+      if (order?.type && order.tableNumber) {
+        const tableNumber = Number(order.tableNumber);
+        if (!Number.isNaN(tableNumber)) {
+          await setOrderStatus(order.type, tableNumber, false);
+        }
+      }
+      await loadOrders(selectedRestaurant);
+    } catch (error) {
+      console.error('Close order error:', error);
+      Alert.alert('Error', 'Failed to close order');
+    }
+  };
+
+  const openOrders = useMemo(
+    () => orders.filter((order) => !order.isClosed),
+    [orders]
+  );
+  const closedOrders = useMemo(
+    () => orders.filter((order) => order.isClosed),
+    [orders]
+  );
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -183,18 +179,40 @@ export default function OrdersScreen() {
           <Text style={styles.backButtonText}>← Back to Main Menu</Text>
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <Text style={styles.title}>Orders History</Text>
-          <TouchableOpacity 
-            style={[styles.actionButton, styles.deleteButton]} 
-            onPress={clearAllData}
-          >
-            <Text style={styles.actionButtonText}>Clear All</Text>
-          </TouchableOpacity>
+          <Text style={styles.title}>Orders</Text>
+          {role === 'admin' && (
+            <TouchableOpacity
+              style={[styles.actionButton, styles.deleteButton]}
+              onPress={clearAllData}>
+              <Text style={styles.actionButtonText}>Clear All</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
+      <View style={styles.restaurantList}>
+        {RESTAURANTS.map((restaurant) => (
+          <TouchableOpacity
+            key={restaurant}
+            style={[
+              styles.restaurantButton,
+              selectedRestaurant === restaurant && styles.restaurantButtonActive,
+            ]}
+            onPress={() => {
+              setSelectedRestaurant(restaurant);
+              loadOrders(restaurant);
+            }}>
+            <Text style={styles.restaurantButtonText}>{restaurant}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <ScrollView style={styles.ordersList}>
-        {orders.map((order) => (
+        <Text style={styles.sectionTitle}>Live Orders</Text>
+        {openOrders.length === 0 && (
+          <Text style={styles.emptyText}>No open orders.</Text>
+        )}
+        {openOrders.map((order) => (
           <View key={order.id} style={styles.orderCard}>
             <View style={styles.orderHeader}>
               <Text style={styles.orderType}>
@@ -223,13 +241,56 @@ export default function OrdersScreen() {
                   <Text style={styles.actionButtonText}>Print</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.actionButton, styles.deleteButton]}
-                  onPress={() => {
-                    console.log('Delete button pressed for order:', order.id);
-                    deleteOrder(order.id);
-                  }}>
-                  <Text style={styles.actionButtonText}>Delete</Text>
+                  style={[styles.actionButton, styles.closeButton]}
+                  onPress={() => handleCloseOrder(order.id)}>
+                  <Text style={styles.actionButtonText}>Close</Text>
                 </TouchableOpacity>
+                {role === 'admin' && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.deleteButton]}
+                    onPress={() => deleteOrder(order.id)}>
+                    <Text style={styles.actionButtonText}>Delete</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          </View>
+        ))}
+
+        <Text style={styles.sectionTitle}>Order History</Text>
+        {closedOrders.length === 0 && (
+          <Text style={styles.emptyText}>No closed orders.</Text>
+        )}
+        {closedOrders.map((order) => (
+          <View key={order.id} style={styles.orderCard}>
+            <View style={styles.orderHeader}>
+              <Text style={styles.orderType}>
+                {order.type === 'dine-in' ? `Table ${order.tableNumber}` : 'Takeaway'}
+              </Text>
+              <Text style={styles.orderTime}>{order.closedAt ?? order.timestamp}</Text>
+            </View>
+            <View style={styles.orderItems}>
+              {order.items.map((item) => (
+                <Text key={item.id} style={styles.orderItem}>
+                  {item.quantity}x {item.name} - ${(item.price * item.quantity).toFixed(2)}
+                </Text>
+              ))}
+            </View>
+            <View style={styles.orderFooter}>
+              <Text style={styles.orderTotal}>Total: ${order.total.toFixed(2)}</Text>
+              <View style={styles.buttonGroup}>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.printButton]}
+                  onPress={() => printOrder(order)}>
+                  <Text style={styles.actionButtonText}>Print</Text>
+                </TouchableOpacity>
+                {role === 'admin' && (
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.deleteButton]}
+                    onPress={() => deleteOrder(order.id)}>
+                    <Text style={styles.actionButtonText}>Delete</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
           </View>
@@ -254,6 +315,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingLeft: 40, // To account for the back button
   },
+  restaurantList: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  restaurantButton: {
+    backgroundColor: '#1e1e1e',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  restaurantButtonActive: {
+    borderColor: '#4CAF50',
+  },
+  restaurantButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
   backButton: { position: 'absolute', left: 0, padding: 10, zIndex: 1 },
   backButtonText: { color: '#4CAF50', fontSize: 16, fontWeight: 'bold' },
   title: {
@@ -264,6 +345,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   ordersList: { flex: 1 },
+  sectionTitle: {
+    color: '#4CAF50',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 8,
+  },
+  emptyText: {
+    color: '#888',
+    marginBottom: 16,
+  },
   orderCard: {
     backgroundColor: '#333',
     borderRadius: 12,
@@ -301,6 +392,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   editButton: { backgroundColor: '#FF9800' },
+  closeButton: { backgroundColor: '#4CAF50' },
   deleteButton: { backgroundColor: '#F44336' },
   actionButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
 });
