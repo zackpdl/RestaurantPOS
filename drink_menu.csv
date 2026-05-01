@@ -1,0 +1,125 @@
+ID,Drink Name,Price
+1,"Gordon's (Tonic, Sprite, Coke)",180
+2,"BOMBAY (Tonic, Sprite, Coke)",200
+3,"BEEFFATER (Tonic, Sprite, Coke)",180
+4,"Smirnoff (Tonic, Sprite, Core)",200
+5,"Bacardi (Coke, Coke zero, Sprite)",200
+6,Captain margan Dark,180
+7,Regency,180
+8,SIERRA Tequila,200
+9,MEXICANA,150
+10,"Malibu (Orange J, Pineapple Juice, Coke)",180
+11,"Campari (Orange J, Sprite)",180
+12,"Jagermeister (with Coke, Red Bull)",220
+13,Martini (Bianco),170
+14,Sambuca,130
+15,Kahlua,150
+16,Baileys,150
+17,AMARETOO,150
+18,Apple Juice,90
+19,Orange Juice,90
+20,Mango Juice,90
+21,Pineapple Juice,90
+22,Young Coconut,120
+23,Mango Shake,90
+24,Passion Fruit Shake,90
+25,Pineapple Shake,90
+26,Strawberry Shake,90
+27,Watermelon Shake,90
+28,Mango Lassi Shake,120
+29,lassi,90
+30,Mojito (Fruit variants),140
+31,Mojito (Standard),140
+32,Caipirinha (Standard),140
+33,Caipirinha (Passion Fruit),140
+34,Pina Colada,140
+35,Mai Tai,140
+36,Sex on the beach,140
+37,Singapore sling,140
+38,Blue Hawaii,140
+39,Blue longgon,140
+40,Blue Kamikaza,140
+41,Kamikaza,140
+42,Magarita,140
+43,Daiquiri,140
+44,Daiquiri Frozen,140
+45,Pink Lady,140
+46,Gin Fizz,140
+47,Whiskey sour,180
+48,White Russian,140
+49,Black Russian,140
+50,Long Island Ice Tea,140
+51,Tequila Sunrise,140
+52,Screw Driver,140
+53,Swimming Pool,140
+54,Tide Glow,140
+55,Irish Coffee,180
+56,B 52,140
+57,Espresso Martini,140
+58,Cuba Libre,140
+59,Amaretoo sour,180
+60,Boody mary,140
+61,Banana Spritz,140
+62,Negroni,200
+63a,Chang (Small),70
+63b,Chang (Large),110
+64a,Tiger (Small),90
+64b,Tiger (Large),130
+65a,Singha (Small),80
+65b,Singha (Large),130
+66a,Leo (Small),70
+66b,Leo (Large),110
+67a,Heineken (Small),90
+67b,Heineken (Large),130
+68,Red wine glass,180
+69,"White Wine, glass",180
+70,Wine bottle,990
+71,Jack Daniel,190
+72,Jim Beam,180
+73,Black Label,200
+74,Red Label,200
+75,Chivas (12 year),220
+76,Jameson (Irish Whiskey),200
+77,Sang Som (Thai Whiskey),120
+78,Mae khong-190,120
+79,Sang Som 1 bottel,850
+80,Mae khang 1 bottel,850
+81,Chocolade Milk Shake,120
+82,Vanilla Milk Shake,120
+83,Strawberry Milk Shake,120
+84,Banana Milk Shake,120
+85,VIRGIN MOJITO,100
+86,VIRGIN Colada,100
+87,Sex on the beach (no-ACL),100
+88,Fruits Punch,100
+89,Blue Spritz,100
+90,Pink Lemon nate,100
+91,Peach Bellini,100
+92,Espresso,100
+92-double,Espresso (Double),140
+93,Espresso Macchiato,100
+94,Cappuccino,100
+95,Cappuccino Ice,100
+96,Latte,100
+97,Latte Ice,100
+98,Caffe Americano,70
+99,Hot Coffee,70
+100,Thai Tea,110
+101,Green Tea,110
+102,Hot Tea,70
+103a,Drinking Water (Small),30
+103b,Drinking Water (Large),50
+104,Coke,40
+105,Coke zero,50
+106,Coke Light,40
+107,Sprite,40
+108,Fanta Orange,40
+109,Fanta Strawberry,40
+110,Fanta Mixed Fruit,40
+111,Schweppes (Tonic Water),50
+112,Schweppes (Manao Soda),50
+113,Lipton (Peach Iced Tea),50
+114,Lipton (Lemon Iced Tea),50
+115,Soda Water (Rock),40
+116,Red Bull,40
+117,Ginger Aale,40
