@@ -1,6 +1,7 @@
-#!/bin/bash
+#!/bin/sh
 # Patch react-native-bluetooth-escpos-printer for modern Android SDK
-# This runs automatically after npm install (via postinstall in package.json)
+# Runs automatically after npm install (postinstall in package.json)
+# Works on both macOS and Linux (used by EAS build servers)
 set -e
 
 GRADLE_FILE="node_modules/react-native-bluetooth-escpos-printer/android/build.gradle"
@@ -13,8 +14,15 @@ fi
 
 echo "Patching react-native-bluetooth-escpos-printer for modern Android SDK..."
 
-# Patch build.gradle: jcenter -> mavenCentral, AGP 3.1.4 -> 8.1.0, SDK 27 -> 34, support-v4 -> androidx.core
-sed -i '' \
+# Determine sed in-place flags: macos uses -i'', linux uses -i
+if sed --version 2>/dev/null | grep -q GNU; then
+  SED_INPLACE="sed -i"
+else
+  SED_INPLACE="sed -i ''"
+fi
+
+# Patch build.gradle
+$SED_INPLACE \
   -e 's|jcenter { url "http://jcenter.bintray.com/" }|mavenCentral()|g' \
   -e 's|maven {url "http://repo.spring.io/plugins-release/"}|maven {url "https://repo.spring.io/plugins-release/"}|g' \
   -e "s|classpath 'com.android.tools.build:gradle:3.1.4'|classpath 'com.android.tools.build:gradle:8.1.0'|g" \
@@ -27,14 +35,14 @@ sed -i '' \
   -e 's/compile fileTree/implementation fileTree/g' \
   "$GRADLE_FILE"
 
-# Add namespace to android block if not present
+# Add namespace if not present
 if ! grep -q 'namespace "cn.jystudio.bluetooth"' "$GRADLE_FILE"; then
-  sed -i '' 's/android {/android {\n    namespace "cn.jystudio.bluetooth"/' "$GRADLE_FILE"
+  $SED_INPLACE 's/android {/android {\n    namespace "cn.jystudio.bluetooth"/' "$GRADLE_FILE"
 fi
 
-# Patch Java file: android.support.v4 -> androidx.core
+# Patch Java file
 if [ -f "$JAVA_FILE" ]; then
-  sed -i '' \
+  $SED_INPLACE \
     -e 's/import android.support.v4.app.ActivityCompat;/import androidx.core.app.ActivityCompat;/g' \
     -e 's/import android.support.v4.content.ContextCompat;/import androidx.core.content.ContextCompat;/g' \
     "$JAVA_FILE"
