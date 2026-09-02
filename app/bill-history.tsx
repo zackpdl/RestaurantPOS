@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Bill, deleteClosedBills, fetchBills } from '../lib/pos/bills';
+import { Bill, deleteClosedBills, fetchBills, getBillTableDisplay } from '../lib/pos/bills';
 import { loadSelectedRestaurant, loadSession } from '../lib/pos/storage';
+import { printReceipt } from '../lib/pos/printer';
+
+const formatPaymentMethod = (method: Bill['payment_method']) => {
+  if (!method) return '—';
+  if (method === 'cash') return 'Cash';
+  if (method === 'scan') return 'Scan';
+  if (method === 'card') return 'Card';
+  return String(method);
+};
 
 export default function BillHistoryScreen() {
   const router = useRouter();
@@ -48,6 +57,25 @@ export default function BillHistoryScreen() {
   const totalAll = useMemo(() => {
     return bills.reduce((sum, bill) => sum + bill.total, 0);
   }, [bills]);
+
+  const handlePrintBill = async (bill: Bill) => {
+    try {
+      await printReceipt({
+        restaurant: bill.restaurant,
+        tableLabel: getBillTableDisplay(bill),
+        headerLine: `Date: ${new Date(bill.created_at).toLocaleString()}`,
+        paymentLabel: formatPaymentMethod(bill.payment_method),
+        items: bill.items,
+        subtotal: bill.subtotal,
+        taxEnabled: bill.tax_enabled,
+        tax: bill.tax,
+        total: bill.total,
+      });
+    } catch (error) {
+      console.error('Error printing bill:', error);
+      Alert.alert('Print failed', 'Could not print this bill.');
+    }
+  };
 
   const handleClearHistory = async () => {
     if (!restaurant) return;
@@ -96,13 +124,19 @@ export default function BillHistoryScreen() {
         {bills.map((bill) => (
           <View key={bill.id} style={styles.billCard}>
             <View style={styles.billHeader}>
-              <Text style={styles.billTitle}>Table {bill.table_number}</Text>
+              <Text style={styles.billTitle}>{getBillTableDisplay(bill)}</Text>
               <Text style={styles.billTotal}>{bill.total.toFixed(2)}</Text>
             </View>
             <Text style={styles.billMeta}>
               {new Date(bill.closed_at ?? bill.created_at).toLocaleString()}
             </Text>
             <Text style={styles.billMeta}>Items: {bill.items.length}</Text>
+            <Text style={styles.billMeta}>Payment: {formatPaymentMethod(bill.payment_method)}</Text>
+            <TouchableOpacity
+              style={styles.printButton}
+              onPress={() => handlePrintBill(bill)}>
+              <Text style={styles.printButtonText}>🖨 Print</Text>
+            </TouchableOpacity>
           </View>
         ))}
       </ScrollView>
@@ -189,5 +223,17 @@ const styles = StyleSheet.create({
   billMeta: {
     color: '#aaa',
     marginBottom: 4,
+  },
+  printButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#2196F3',
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    marginTop: 6,
+  },
+  printButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
 });

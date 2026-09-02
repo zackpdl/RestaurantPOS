@@ -35,6 +35,11 @@ export default function HomeScreen() {
             onPress={() => router.push('/orders')}>
             <Text style={styles.buttonText}>View Orders</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.button, styles.historyButton]}
+            onPress={() => router.push('/bill-history')}>
+            <Text style={styles.buttonText}>Bill History</Text>
+          </TouchableOpacity>
         </View>
       </View>
     </View>
@@ -88,6 +93,9 @@ const styles = StyleSheet.create({
   },
   ordersButton: {
     backgroundColor: '#2196F3',
+  },
+  historyButton: {
+    backgroundColor: '#9C27B0',
   },
   buttonText: {
     color: '#fff',

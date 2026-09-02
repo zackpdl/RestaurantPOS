@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Bill, deleteAllBillsForRestaurant, deleteBill, fetchBills, subscribeToBills } from '../lib/pos/bills';
+import {
+  Bill,
+  deleteAllBillsForRestaurant,
+  deleteBill,
+  fetchBills,
+  getBillTableDisplay,
+  subscribeToBills,
+} from '../lib/pos/bills';
 import { loadSession, saveSelectedRestaurant } from '../lib/pos/storage';
+import { printReceipt } from '../lib/pos/printer';
 import { RESTAURANTS } from '../lib/pos/menuData';
 
 export default function AdminScreen() {
@@ -69,6 +77,24 @@ export default function AdminScreen() {
     setPendingDeleteAll(true);
     setPinInput('');
     setPinModalVisible(true);
+  };
+
+  const handlePrintBill = async (bill: Bill) => {
+    try {
+      await printReceipt({
+        restaurant: bill.restaurant,
+        tableLabel: getBillTableDisplay(bill),
+        headerLine: `Date: ${new Date(bill.created_at).toLocaleString()}`,
+        items: bill.items,
+        subtotal: bill.subtotal,
+        taxEnabled: bill.tax_enabled,
+        tax: bill.tax,
+        total: bill.total,
+      });
+    } catch (error) {
+      console.error('Error printing bill:', error);
+      Alert.alert('Print failed', 'Could not print this bill.');
+    }
   };
 
   const confirmDelete = async () => {
@@ -147,7 +173,7 @@ export default function AdminScreen() {
         {bills.map((bill) => (
           <View key={bill.id} style={styles.billCard}>
             <View style={styles.billHeader}>
-              <Text style={styles.billTitle}>Table {bill.table_number}</Text>
+              <Text style={styles.billTitle}>{getBillTableDisplay(bill)}</Text>
               <Text style={styles.billTotal}>{bill.total.toFixed(2)}</Text>
             </View>
             <Text style={styles.billMeta}>{new Date(bill.created_at).toLocaleString()}</Text>
@@ -156,6 +182,11 @@ export default function AdminScreen() {
               style={styles.deleteButton}
               onPress={() => handleDelete(bill.id)}>
               <Text style={styles.deleteButtonText}>Delete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.printButton}
+              onPress={() => handlePrintBill(bill)}>
+              <Text style={styles.printButtonText}>🖨 Print</Text>
             </TouchableOpacity>
           </View>
         ))}
@@ -298,6 +329,18 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   deleteButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  printButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#2196F3',
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    marginTop: 6,
+  },
+  printButtonText: {
     color: '#fff',
     fontWeight: 'bold',
   },

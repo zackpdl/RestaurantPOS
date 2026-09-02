@@ -1,13 +1,19 @@
+/// <reference types="node" />
+
 import RNFormData from 'react-native/Libraries/Network/FormData';
 import { TextDecoder, TextEncoder } from 'util';
 
-import { installFormDataPatch } from '../../FormData';
 import { createBoundary, convertFormDataAsync, joinUint8Arrays } from '../convertFormData';
 
-// @ts-ignore - TextDecoder and TextEncoder are not defined in native jest environments.
+declare namespace globalThis {
+  let TextDecoder: typeof import('util').TextDecoder;
+  let TextEncoder: typeof import('util').TextEncoder;
+}
+
 globalThis.TextDecoder ??= TextDecoder;
 globalThis.TextEncoder ??= TextEncoder;
 
+const { installFormDataPatch } = jest.requireActual('../../FormData');
 const ExpoFormData = installFormDataPatch(RNFormData);
 
 describe(convertFormDataAsync, () => {
@@ -40,7 +46,7 @@ describe(convertFormDataAsync, () => {
     const { body, boundary: resultBoundary } = await convertFormDataAsync(formData, boundary);
     expect(new TextDecoder().decode(body)).toMatchInlineSnapshot(`
       "------ExpoFetchFormBoundary0000000000000000
-      content-disposition: form-data; name="blob"; filename="blobFile"; filename*=utf-8''blobFile
+      content-disposition: form-data; name="blob"; filename="blobFile"
       content-type: text/plain
 
       hello blob
@@ -53,9 +59,7 @@ describe(convertFormDataAsync, () => {
   it(`should convert expo-file-system FileBlob`, async () => {
     const formData = new ExpoFormData();
     const mockFileBlob = {
-      file: {
-        bytes: () => new Uint8Array([65, 66, 67]),
-      },
+      bytes: () => new Uint8Array([65, 66, 67]),
     };
     // @ts-ignore
     formData.append('blob', mockFileBlob);

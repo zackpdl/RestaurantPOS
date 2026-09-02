@@ -151,7 +151,11 @@ export default function OrderScreen() {
         />
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryContainer}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoryContainer}
+        keyboardShouldPersistTaps="handled">
         {categories.map((category) => (
           <TouchableOpacity
             key={category}
@@ -170,7 +174,11 @@ export default function OrderScreen() {
         ))}
       </ScrollView>
 
-      <ScrollView style={styles.menuList}>
+      <ScrollView
+        style={styles.menuList}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        nestedScrollEnabled>
         {searchQuery && filteredItems.map((item) => (
           <TouchableOpacity
             key={item.id}
@@ -187,7 +195,11 @@ export default function OrderScreen() {
 
       <View style={styles.orderContainer}>
         <Text style={styles.sectionTitle}>Order Summary</Text>
-        <ScrollView style={styles.orderList}>
+        <ScrollView
+          style={styles.orderList}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled>
           {orderItems.map((item) => (
             <View key={item.id} style={styles.orderItem}>
               <View style={styles.itemInfo}>

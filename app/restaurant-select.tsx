@@ -8,6 +8,7 @@ export default function RestaurantSelectScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [role, setRole] = useState<'admin' | 'staff' | null>(null);
+  const [staffRestaurant, setStaffRestaurant] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -18,6 +19,12 @@ export default function RestaurantSelectScreen() {
         return;
       }
       setRole(session.role);
+      if (session.role === 'staff' && session.restaurant) {
+        setStaffRestaurant(session.restaurant);
+        await saveSelectedRestaurant(session.restaurant);
+        router.replace('/tables');
+        return;
+      }
       setLoading(false);
     };
     load();
@@ -42,7 +49,7 @@ export default function RestaurantSelectScreen() {
       <Text style={styles.subtitle}>Role: {role}</Text>
 
       <View style={styles.list}>
-        {RESTAURANTS.map((restaurant) => (
+        {(staffRestaurant ? [staffRestaurant] : RESTAURANTS).map((restaurant) => (
           <TouchableOpacity
             key={restaurant}
             style={styles.card}

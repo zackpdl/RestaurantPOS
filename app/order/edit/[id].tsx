@@ -121,6 +121,8 @@ const EditOrder = () => {
         data={menuItems}
         renderItem={renderItem}
         keyExtractor={item => item.id}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={tw`pb-6`}
       />
       <View style={tw`border-t border-gray-300 p-4`}>
         <Text style={tw`text-lg font-bold`}>Total: ${order?.total.toFixed(2) || '0.00'}</Text>

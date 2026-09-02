@@ -1,6 +1,11 @@
 import { supabase } from '../supabase';
 import { loadBillCache, saveBillCache } from './storage';
 
+const isMissingColumnError = (error: unknown, column: string) => {
+  const e = error as { code?: string; message?: string } | null;
+  return e?.code === 'PGRST204' && typeof e?.message === 'string' && e.message.includes(column);
+};
+
 export type BillItem = {
   id: string;
   name: string;
@@ -12,6 +17,7 @@ export type Bill = {
   id: string;
   restaurant: string;
   table_number: number;
+  table_label?: string | null;
   items: BillItem[];
   subtotal: number;
   tax_enabled: boolean;
@@ -20,9 +26,22 @@ export type Bill = {
   created_at: string;
   is_closed?: boolean;
   closed_at?: string | null;
+  payment_method?: 'cash' | 'scan' | 'card' | null;
 };
 
 export const TAX_RATE = 0.07;
+
+export const normalizeBillTableLabel = (label?: string | null) => {
+  const normalized = label?.trim() ?? '';
+  return normalized.length > 0 ? normalized : null;
+};
+
+export const getBillTableDisplay = (bill: Pick<Bill, 'table_number' | 'table_label'>) => {
+  const normalized = normalizeBillTableLabel(bill.table_label);
+  return normalized
+    ? `Table ${bill.table_number} - ${normalized}`
+    : `Table ${bill.table_number}`;
+};
 
 export const calculateTotals = (items: BillItem[], taxEnabled: boolean) => {
   const subtotal = items.reduce(
@@ -65,11 +84,18 @@ export const fetchBills = async (
 export const createBill = async (
   bill: Omit<Bill, 'id' | 'created_at'>
 ): Promise<Bill> => {
-  const { data, error } = await supabase
-    .from('bills')
-    .insert(bill)
-    .select()
-    .single();
+  const insert = async (payload: Omit<Bill, 'id' | 'created_at'>) =>
+    supabase.from('bills').insert(payload).select().single();
+
+  let { data, error } = await insert(bill);
+  if (error && isMissingColumnError(error, 'payment_method')) {
+    const { payment_method: _paymentMethod, ...rest } = bill;
+    ({ data, error } = await insert(rest));
+  }
+  if (error && isMissingColumnError(error, 'table_label')) {
+    const { table_label: _tableLabel, ...rest } = bill;
+    ({ data, error } = await insert(rest));
+  }
 
   if (error) throw error;
   return data as Bill;
@@ -80,16 +106,34 @@ export const updateBill = async (
   updates: Partial<
     Pick<
       Bill,
-      'items' | 'subtotal' | 'tax_enabled' | 'tax' | 'total' | 'is_closed' | 'closed_at'
+      | 'items'
+      | 'subtotal'
+      | 'tax_enabled'
+      | 'tax'
+      | 'total'
+      | 'is_closed'
+      | 'closed_at'
+      | 'payment_method'
+      | 'table_label'
     >
   >
 ): Promise<Bill> => {
-  const { data, error } = await supabase
-    .from('bills')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single();
+  const update = async (payload: typeof updates) =>
+    supabase.from('bills').update(payload).eq('id', id).select().single();
+
+  let { data, error } = await update(updates);
+  if (error && 'payment_method' in updates && isMissingColumnError(error, 'payment_method')) {
+    const { payment_method: _paymentMethod, ...rest } = updates as typeof updates & {
+      payment_method?: unknown;
+    };
+    ({ data, error } = await update(rest));
+  }
+  if (error && 'table_label' in updates && isMissingColumnError(error, 'table_label')) {
+    const { table_label: _tableLabel, ...rest } = updates as typeof updates & {
+      table_label?: unknown;
+    };
+    ({ data, error } = await update(rest));
+  }
 
   if (error) throw error;
   return data as Bill;
@@ -112,11 +156,43 @@ export const closeBill = async (id: string) => {
   return data as Bill;
 };
 
+export const closeBillWithPayment = async (
+  id: string,
+  paymentMethod: NonNullable<Bill['payment_method']>
+) => {
+  const closedAt = new Date().toISOString();
+  let { data, error } = await supabase
+    .from('bills')
+    .update({
+      is_closed: true,
+      closed_at: closedAt,
+      payment_method: paymentMethod,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  // If the DB hasn't been migrated yet, allow closing the bill without payment tracking.
+  if (error && isMissingColumnError(error, 'payment_method')) {
+    ({ data, error } = await supabase
+      .from('bills')
+      .update({ is_closed: true, closed_at: closedAt })
+      .eq('id', id)
+      .select()
+      .single());
+  }
+
+  if (error) throw error;
+  return data as Bill;
+};
+
 export const fetchLatestOpenBillForTable = async (
   restaurant: string,
-  tableNumber: number
+  tableNumber: number,
+  tableLabel?: string | null
 ): Promise<Bill | null> => {
-  const { data, error } = await supabase
+  const normalizedLabel = normalizeBillTableLabel(tableLabel);
+  let query = supabase
     .from('bills')
     .select('*')
     .eq('restaurant', restaurant)
@@ -125,6 +201,14 @@ export const fetchLatestOpenBillForTable = async (
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (normalizedLabel) {
+    query = query.eq('table_label', normalizedLabel);
+  } else {
+    query = query.is('table_label', null);
+  }
+
+  const { data, error } = await query;
 
   if (error) throw error;
   return data ? (data as Bill) : null;

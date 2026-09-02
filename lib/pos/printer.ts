@@ -10,6 +10,8 @@ export type ReceiptData = {
   restaurant: string;
   headerLine?: string;
   tableLabel: string;
+  dateLabel?: string;
+  paymentLabel?: string;
   items: ReceiptItem[];
   subtotal: number;
   taxEnabled: boolean;
@@ -55,6 +57,12 @@ const buildReceiptText = (data: ReceiptData) => {
   if (data.headerLine) {
     lines.push(centerText(data.headerLine));
   }
+  if (data.dateLabel) {
+    lines.push(centerText(data.dateLabel));
+  }
+  if (data.paymentLabel) {
+    lines.push(centerText(`Payment: ${data.paymentLabel}`));
+  }
   lines.push('-------------------------------');
   data.items.forEach((item) => {
     const itemTotal = formatMoney(item.price * item.quantity);
@@ -79,43 +87,152 @@ const buildReceiptText = (data: ReceiptData) => {
   return lines.join('\n');
 };
 
-const buildReceiptHtml = (data: ReceiptData) => {
-  const itemLines = data.items
-    .map(
-      (item) =>
-        `${item.name} x${item.quantity}  ${formatMoney(item.price * item.quantity)}`
-    )
-    .join('<br/>');
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 
-  return `
-    <html>
-      <body style="font-family: 'Helvetica'; padding: 16px;">
-        <div style="text-align: center; font-weight: bold;">${data.restaurant}</div>
-        <div style="text-align: center;">${data.tableLabel}</div>
-        ${data.headerLine ? `<div style="text-align: center;">${data.headerLine}</div>` : ''}
-        <hr/>
-        <div>${itemLines}</div>
-        <hr/>
-        <div>Subtotal: ${formatMoney(data.subtotal)}</div>
-        ${data.taxEnabled ? `<div>Tax (7%): ${formatMoney(data.tax)}</div>` : ''}
-        <div style="font-weight: bold;">Total: ${formatMoney(data.total)}</div>
-      </body>
-    </html>
-  `;
+const buildReceiptHtml = (data: ReceiptData) => {
+  const dateLabel = data.dateLabel ?? new Date().toLocaleString();
+  const paymentLabel = data.paymentLabel ?? '';
+
+  const itemRows = data.items
+    .map((item) => {
+      const name = escapeHtml(item.name);
+      const qty = String(item.quantity);
+      const amt = formatMoney(item.price * item.quantity);
+      return (
+        '<div class="row text">' +
+        '<span>' +
+        name +
+        ' x' +
+        qty +
+        '</span>' +
+        '<span>' +
+        amt +
+        '</span>' +
+        '</div>'
+      );
+    })
+    .join('');
+
+  const css = [
+    '@page { margin: 0; size: auto; }',
+    'html, body {',
+    '  margin: 0;',
+    '  padding: 0;',
+    '  width: 100%;',
+    '  height: auto;',
+    '  font-family: monospace;',
+    '  background: white;',
+    '}',
+    '* { box-sizing: border-box; }',
+    '.center { text-align: center; }',
+    '.bold { font-weight: bold; }',
+    '.receipt {',
+      '  width: 100%;',
+      '  padding: 30px;',
+      '  box-sizing: border-box;',
+      '  min-height: 1800px;', // forces long receipt so Android doesn't shrink content
+    '}',
+    '.title { font-size: 62px; font-weight: bold; }',
+    '.subtitle { font-size: 42px; }',
+    '.text { font-size: 42px; line-height: 1.6; }',
+    '.total { font-size: 56px; font-weight: bold; }',
+    '.line { border-top: 3px dashed black; margin: 25px 0; }',
+    '.row { display: flex; justify-content: space-between; margin-bottom: 20px; }',
+  ].join('\n');
+
+  const paymentHtml = paymentLabel ? escapeHtml(paymentLabel) : '';
+
+  return (
+    '<html>' +
+    '<head>' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1" />' +
+    '<style>' +
+    css +
+    '</style>' +
+    '</head>' +
+    '<body>' +
+    '<div class="receipt">' +
+    '<div class="center title">' +
+    escapeHtml(data.restaurant) +
+    '</div>' +
+    '<div class="center subtitle">Retail Invoice</div>' +
+    '<div class="line"></div>' +
+    '<div class="text">Date: ' +
+    escapeHtml(dateLabel) +
+    '</div>' +
+    '<div class="text">' +
+    escapeHtml(data.tableLabel) +
+    '</div>' +
+    '<div class="text">Payment: ' +
+    (paymentHtml || '—') +
+    '</div>' +
+    '<div class="line"></div>' +
+    '<div class="row bold text">' +
+    '<span>Item</span>' +
+    '<span>Amt</span>' +
+    '</div>' +
+    '<div class="line"></div>' +
+    itemRows +
+    '<div class="line"></div>' +
+    '<div class="row text"><span>Subtotal</span><span>' +
+    formatMoney(data.subtotal) +
+    '</span></div>' +
+    '<div class="row text"><span>Tax</span><span>' +
+    (data.taxEnabled ? formatMoney(data.tax) : '0') +
+    '</span></div>' +
+    '<div class="line"></div>' +
+    '<div class="row total"><span>TOTAL</span><span>' +
+    formatMoney(data.total) +
+    ' THB</span></div>' +
+    '<div class="line"></div>' +
+    '<div class="center text" style="margin-top:60px;">Thank You<br/>Visit Again</div>' +
+    '</div>' +
+    '</body>' +
+    '</html>'
+  );
 };
 
 const tryBluetoothPrint = async (text: string) => {
-  const printerAddress = process.env.EXPO_PUBLIC_BLUETOOTH_PRINTER_ADDRESS;
-  if (!printerAddress) return false;
+  const printerAddress = process.env.EXPO_PUBLIC_BLUETOOTH_PRINTER_ADDRESS?.trim();
+  if (!printerAddress) {
+    console.log('Bluetooth printer: no EXPO_PUBLIC_BLUETOOTH_PRINTER_ADDRESS set — skipping Bluetooth route');
+    return false;
+  }
+
+  console.log(`Bluetooth printer: address=${printerAddress}, attempting print...`);
+
+  // The react-native-bluetooth-escpos-printer package must be installed
+  // and the app built as a dev client / standalone APK (not Expo Go).
+  let BluetoothManager: any = null;
+  let BluetoothEscposPrinter: any = null;
 
   try {
-    // eslint-disable-next-line import/no-unresolved, @typescript-eslint/no-var-requires
-    const module = require('react-native-bluetooth-escpos-printer');
-    const BluetoothManager = module?.BluetoothManager;
-    const BluetoothEscposPrinter = module?.BluetoothEscposPrinter;
+    const mod = require('react-native-bluetooth-escpos-printer');
+    BluetoothManager = mod?.BluetoothManager ?? null;
+    BluetoothEscposPrinter = mod?.BluetoothEscposPrinter ?? null;
+  } catch (importErr) {
+    console.warn(
+      'Bluetooth print skipped: react-native-bluetooth-escpos-printer not found.',
+      'Install it and build a dev client. Falling back to system print dialog.',
+      importErr
+    );
+    return false;
+  }
 
-    if (!BluetoothManager || !BluetoothEscposPrinter) return false;
+  if (!BluetoothManager || !BluetoothEscposPrinter) {
+    console.warn(
+      'Bluetooth print skipped: module loaded but BluetoothManager/BluetoothEscposPrinter missing.'
+    );
+    return false;
+  }
 
+  try {
     if (BluetoothManager.enableBluetooth) {
       await BluetoothManager.enableBluetooth();
     }
@@ -124,12 +241,14 @@ const tryBluetoothPrint = async (text: string) => {
     }
     if (BluetoothEscposPrinter.printText) {
       await BluetoothEscposPrinter.printText(text, {});
+      console.log('Bluetooth print succeeded');
       return true;
     }
   } catch (error) {
-    console.warn('Bluetooth print unavailable:', error);
+    console.warn('Bluetooth print failed:', error);
   }
 
+  console.log('Bluetooth print unavailable — falling back to system print dialog');
   return false;
 };
 

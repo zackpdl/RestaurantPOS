@@ -6,16 +6,32 @@ export type Session = {
   userId?: string;
   role: UserRole;
   pin: string;
+  restaurant?: string;
 };
 
 const KEYS = {
   session: 'pos.session',
   restaurant: 'pos.restaurant',
   bills: (restaurant: string) => `pos.bills.${restaurant}`,
-  cart: (restaurant: string, tableNumber: number) =>
-    `pos.cart.${restaurant}.table.${tableNumber}`,
-  activeBill: (restaurant: string, tableNumber: number) =>
-    `pos.activeBill.${restaurant}.table.${tableNumber}`,
+  cart: (restaurant: string, tableKey: string) =>
+    `pos.cart.${restaurant}.table.${tableKey}`,
+  activeBill: (restaurant: string, tableKey: string) =>
+    `pos.activeBill.${restaurant}.table.${tableKey}`,
+};
+
+export const normalizeCustomTableLabel = (label?: string | null) => {
+  const normalized = label?.trim() ?? '';
+  return normalized.length > 0 ? normalized : null;
+};
+
+export const buildTableKey = (
+  tableNumber: number,
+  customLabel?: string | null
+) => {
+  const normalized = normalizeCustomTableLabel(customLabel);
+  return normalized
+    ? `${tableNumber}__${encodeURIComponent(normalized.toLowerCase())}`
+    : String(tableNumber);
 };
 
 export const saveSession = async (session: Session) => {
@@ -60,17 +76,17 @@ export const saveBillCache = async <T>(restaurant: string, bills: T[]) => {
 
 export const saveCart = async <T>(
   restaurant: string,
-  tableNumber: number,
+  tableKey: string,
   cart: T
 ) => {
-  await AsyncStorage.setItem(KEYS.cart(restaurant, tableNumber), JSON.stringify(cart));
+  await AsyncStorage.setItem(KEYS.cart(restaurant, tableKey), JSON.stringify(cart));
 };
 
 export const loadCart = async <T>(
   restaurant: string,
-  tableNumber: number
+  tableKey: string
 ): Promise<T | null> => {
-  const raw = await AsyncStorage.getItem(KEYS.cart(restaurant, tableNumber));
+  const raw = await AsyncStorage.getItem(KEYS.cart(restaurant, tableKey));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as T;
@@ -79,25 +95,25 @@ export const loadCart = async <T>(
   }
 };
 
-export const clearCart = async (restaurant: string, tableNumber: number) => {
-  await AsyncStorage.removeItem(KEYS.cart(restaurant, tableNumber));
+export const clearCart = async (restaurant: string, tableKey: string) => {
+  await AsyncStorage.removeItem(KEYS.cart(restaurant, tableKey));
 };
 
 export const saveActiveBillId = async (
   restaurant: string,
-  tableNumber: number,
+  tableKey: string,
   billId: string
 ) => {
-  await AsyncStorage.setItem(KEYS.activeBill(restaurant, tableNumber), billId);
+  await AsyncStorage.setItem(KEYS.activeBill(restaurant, tableKey), billId);
 };
 
 export const loadActiveBillId = async (
   restaurant: string,
-  tableNumber: number
+  tableKey: string
 ): Promise<string | null> => {
-  return AsyncStorage.getItem(KEYS.activeBill(restaurant, tableNumber));
+  return AsyncStorage.getItem(KEYS.activeBill(restaurant, tableKey));
 };
 
-export const clearActiveBillId = async (restaurant: string, tableNumber: number) => {
-  await AsyncStorage.removeItem(KEYS.activeBill(restaurant, tableNumber));
+export const clearActiveBillId = async (restaurant: string, tableKey: string) => {
+  await AsyncStorage.removeItem(KEYS.activeBill(restaurant, tableKey));
 };

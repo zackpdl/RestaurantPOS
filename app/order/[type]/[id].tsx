@@ -90,7 +90,10 @@ export default function OrderScreen() {
 
       <View style={styles.menuContainer}>
         <Text style={styles.sectionTitle}>Menu</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled">
           {MENU_ITEMS.map((item) => (
             <TouchableOpacity
               key={item.id}
@@ -105,7 +108,11 @@ export default function OrderScreen() {
 
       <View style={styles.orderContainer}>
         <Text style={styles.sectionTitle}>Order Summary</Text>
-        <ScrollView style={styles.orderList}>
+        <ScrollView
+          style={styles.orderList}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled>
           {orderItems.map((item) => (
             <View key={item.id} style={styles.orderItem}>
               <View style={styles.itemInfo}>
