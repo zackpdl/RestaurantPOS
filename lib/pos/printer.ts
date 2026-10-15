@@ -1,4 +1,6 @@
 import * as Print from 'expo-print';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PermissionsAndroid, Platform, DeviceEventEmitter } from 'react-native';
 
 export type ReceiptItem = {
   name: string;
@@ -19,13 +21,247 @@ export type ReceiptData = {
   total: number;
 };
 
+/* ------------------------------------------------------------------ *
+ * Storage keys
+ * ------------------------------------------------------------------ */
+
+const KEY_ADDRESS = 'printerAddress';
+const KEY_NAME = 'printerName';
+const KEY_WIDTH = 'printerWidth'; // '58' | '80'
+
+export const PRINTER_CHANGED_EVENT = 'pos:printer-changed';
+
+/* ------------------------------------------------------------------ *
+ * Lazy-load the native ESC/POS module.
+ * It only exists in a dev client / standalone APK — never in Expo Go.
+ * ------------------------------------------------------------------ */
+
+type EscposModule = {
+  BluetoothManager: any;
+  BluetoothEscposPrinter: any;
+};
+
+let cachedModule: EscposModule | null = null;
+let moduleLoadFailed = false;
+
+export const loadEscpos = (): EscposModule | null => {
+  if (cachedModule) return cachedModule;
+  if (moduleLoadFailed) return null;
+
+  try {
+    const mod = require('react-native-bluetooth-escpos-printer');
+    if (!mod?.BluetoothManager || !mod?.BluetoothEscposPrinter) {
+      console.warn('[printer] module loaded but native bindings are missing');
+      moduleLoadFailed = true;
+      return null;
+    }
+    cachedModule = {
+      BluetoothManager: mod.BluetoothManager,
+      BluetoothEscposPrinter: mod.BluetoothEscposPrinter,
+    };
+    return cachedModule;
+  } catch (err) {
+    console.warn(
+      '[printer] react-native-bluetooth-escpos-printer unavailable — Bluetooth printing disabled.',
+      err
+    );
+    moduleLoadFailed = true;
+    return null;
+  }
+};
+
+export const isBluetoothPrintingAvailable = () => loadEscpos() !== null;
+
+/* ------------------------------------------------------------------ *
+ * Saved printer (persisted, survives app restarts)
+ * ------------------------------------------------------------------ */
+
+export type SavedPrinter = {
+  address: string;
+  name: string;
+  width: '58' | '80';
+};
+
+export const getSavedPrinter = async (): Promise<SavedPrinter | null> => {
+  try {
+    const [address, name, width] = await Promise.all([
+      AsyncStorage.getItem(KEY_ADDRESS),
+      AsyncStorage.getItem(KEY_NAME),
+      AsyncStorage.getItem(KEY_WIDTH),
+    ]);
+
+    // Fall back to the build-time env var so an existing .env keeps working.
+    const envAddress = process.env.EXPO_PUBLIC_BLUETOOTH_PRINTER_ADDRESS?.trim();
+    const finalAddress = address?.trim() || envAddress || '';
+
+    if (!finalAddress) return null;
+
+    return {
+      address: finalAddress,
+      name: name || 'Saved printer',
+      width: width === '80' ? '80' : '58',
+    };
+  } catch (err) {
+    console.warn('[printer] failed to read saved printer', err);
+    return null;
+  }
+};
+
+export const savePrinter = async (printer: SavedPrinter) => {
+  await AsyncStorage.multiSet([
+    [KEY_ADDRESS, printer.address],
+    [KEY_NAME, printer.name],
+    [KEY_WIDTH, printer.width],
+  ]);
+  DeviceEventEmitter.emit(PRINTER_CHANGED_EVENT);
+};
+
+export const clearPrinter = async () => {
+  await AsyncStorage.multiRemove([KEY_ADDRESS, KEY_NAME, KEY_WIDTH]);
+  DeviceEventEmitter.emit(PRINTER_CHANGED_EVENT);
+};
+
+/* ------------------------------------------------------------------ *
+ * Runtime permissions
+ *
+ * Android 12+ (API 31+) needs BLUETOOTH_CONNECT / BLUETOOTH_SCAN at
+ * runtime. Without BLUETOOTH_CONNECT, getBondedDevices() returns an
+ * empty list — which is exactly why printers never showed up.
+ * ------------------------------------------------------------------ */
+
+export const requestBluetoothPermissions = async (): Promise<boolean> => {
+  if (Platform.OS !== 'android') return true;
+
+  const apiLevel = typeof Platform.Version === 'number' ? Platform.Version : parseInt(String(Platform.Version), 10);
+
+  try {
+    if (apiLevel >= 31) {
+      const result = await PermissionsAndroid.requestMultiple([
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+      ]);
+
+      const connectOk = result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED;
+      const scanOk = result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === PermissionsAndroid.RESULTS.GRANTED;
+
+      if (!connectOk || !scanOk) {
+        console.warn('[printer] Bluetooth permissions denied', result);
+        return false;
+      }
+      return true;
+    }
+
+    // Android 11 and below use location permission for Bluetooth discovery.
+    const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION);
+    return granted === PermissionsAndroid.RESULTS.GRANTED;
+  } catch (err) {
+    console.warn('[printer] permission request failed', err);
+    return false;
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * Device discovery / connection
+ * ------------------------------------------------------------------ */
+
+export type DiscoveredPrinter = {
+  name: string;
+  address: string;
+  paired: boolean;
+};
+
+const parseDeviceArray = (raw: unknown, paired: boolean): DiscoveredPrinter[] => {
+  try {
+    const list = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(list)) return [];
+    return list
+      .filter((d: any) => d && d.address)
+      .map((d: any) => ({
+        name: d.name || d.address,
+        address: d.address,
+        paired,
+      }));
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Returns paired printers plus any discovered during a scan.
+ * Requires BLUETOOTH_CONNECT (Android 12+) — call
+ * requestBluetoothPermissions() first.
+ */
+export const discoverPrinters = async (): Promise<DiscoveredPrinter[]> => {
+  const mod = loadEscpos();
+  if (!mod) throw new Error('Bluetooth printing is not available in this build.');
+
+  const { BluetoothManager } = mod;
+
+  try {
+    await BluetoothManager.enableBluetooth();
+  } catch (err) {
+    console.warn('[printer] enableBluetooth failed (continuing)', err);
+  }
+
+  let paired: DiscoveredPrinter[] = [];
+
+  try {
+    const scanResult = await BluetoothManager.scanDevices();
+    const parsed = typeof scanResult === 'string' ? JSON.parse(scanResult) : scanResult;
+    paired = parseDeviceArray(parsed?.paired, true);
+    const found = parseDeviceArray(parsed?.found, false);
+
+    const seen = new Set(paired.map((p) => p.address));
+    const merged = [...paired, ...found.filter((f) => !seen.has(f.address))];
+    return merged;
+  } catch (err) {
+    console.warn('[printer] scanDevices failed', err);
+    // Fall back to the already-paired list emitted by the native side.
+    return await new Promise<DiscoveredPrinter[]>((resolve) => {
+      let settled = false;
+      const finish = (devices: DiscoveredPrinter[]) => {
+        if (settled) return;
+        settled = true;
+        sub.remove();
+        resolve(devices);
+      };
+
+      const sub = DeviceEventEmitter.addListener(
+        BluetoothManager.EVENT_DEVICE_ALREADY_PAIRED,
+        (rsp: any) => finish(parseDeviceArray(rsp?.devices, true))
+      );
+
+      setTimeout(() => finish(paired), 6000);
+    });
+  }
+};
+
+export const connectPrinter = async (address: string): Promise<boolean> => {
+  const mod = loadEscpos();
+  if (!mod) throw new Error('Bluetooth printing is not available in this build.');
+
+  try {
+    await mod.BluetoothManager.connect(address);
+    return true;
+  } catch (err) {
+    console.warn('[printer] connect failed', err);
+    return false;
+  }
+};
+
+/* ------------------------------------------------------------------ *
+ * ESC/POS receipt rendering
+ * ------------------------------------------------------------------ */
+
 const formatMoney = (value: number) => value.toFixed(2);
 
-const RECEIPT_WIDTH = 32; // 58mm ~ 32 chars
+const charsForWidth = (width: '58' | '80') => (width === '80' ? 42 : 32);
 
-const centerText = (text: string) => {
-  if (text.length >= RECEIPT_WIDTH) return text;
-  const pad = Math.floor((RECEIPT_WIDTH - text.length) / 2);
+const dotsForWidth = (width: '58' | '80') => (width === '80' ? 576 : 384);
+
+const centerText = (text: string, width: number) => {
+  if (text.length >= width) return text;
+  const pad = Math.floor((width - text.length) / 2);
   return ' '.repeat(pad) + text;
 };
 
@@ -50,24 +286,22 @@ const wrapText = (text: string, width: number) => {
   return lines;
 };
 
-const buildReceiptText = (data: ReceiptData) => {
+const buildReceiptText = (data: ReceiptData, paperWidth: '58' | '80' = '58') => {
+  const RECEIPT_WIDTH = charsForWidth(paperWidth);
+  const divider = '-'.repeat(RECEIPT_WIDTH);
   const lines: string[] = [];
-  lines.push(centerText(data.restaurant));
-  lines.push(centerText(data.tableLabel));
-  if (data.headerLine) {
-    lines.push(centerText(data.headerLine));
-  }
-  if (data.dateLabel) {
-    lines.push(centerText(data.dateLabel));
-  }
-  if (data.paymentLabel) {
-    lines.push(centerText(`Payment: ${data.paymentLabel}`));
-  }
-  lines.push('-------------------------------');
+
+  lines.push(centerText(data.restaurant, RECEIPT_WIDTH));
+  lines.push(centerText(data.tableLabel, RECEIPT_WIDTH));
+  if (data.headerLine) lines.push(centerText(data.headerLine, RECEIPT_WIDTH));
+  if (data.dateLabel) lines.push(centerText(data.dateLabel, RECEIPT_WIDTH));
+  if (data.paymentLabel) lines.push(centerText(`Payment: ${data.paymentLabel}`, RECEIPT_WIDTH));
+
+  lines.push(divider);
   data.items.forEach((item) => {
     const itemTotal = formatMoney(item.price * item.quantity);
     const qty = `x${item.quantity}`;
-    const nameWidth = RECEIPT_WIDTH - qty.length - itemTotal.length - 2;
+    const nameWidth = Math.max(RECEIPT_WIDTH - qty.length - itemTotal.length - 2, 8);
     const nameLines = wrapText(item.name, nameWidth);
     nameLines.forEach((line, index) => {
       const namePart = padRight(line, nameWidth);
@@ -76,16 +310,148 @@ const buildReceiptText = (data: ReceiptData) => {
       lines.push(`${namePart} ${qtyPart} ${padLeft(totalPart, itemTotal.length)}`);
     });
   });
-  lines.push('-------------------------------');
-  lines.push(padRight('Subtotal', RECEIPT_WIDTH - formatMoney(data.subtotal).length - 1) + ' ' + formatMoney(data.subtotal));
+  lines.push(divider);
+
+  const subtotal = formatMoney(data.subtotal);
+  lines.push(padRight('Subtotal', RECEIPT_WIDTH - subtotal.length - 1) + ' ' + subtotal);
   if (data.taxEnabled) {
-    lines.push(padRight('Tax (7%)', RECEIPT_WIDTH - formatMoney(data.tax).length - 1) + ' ' + formatMoney(data.tax));
+    const tax = formatMoney(data.tax);
+    lines.push(padRight('Tax (7%)', RECEIPT_WIDTH - tax.length - 1) + ' ' + tax);
   }
-  lines.push(padRight('Total', RECEIPT_WIDTH - formatMoney(data.total).length - 1) + ' ' + formatMoney(data.total));
+  const total = formatMoney(data.total);
+  lines.push(padRight('Total', RECEIPT_WIDTH - total.length - 1) + ' ' + total);
   lines.push('');
-  lines.push(centerText('Please rate us on Google'));
+  lines.push(centerText('Please rate us on Google', RECEIPT_WIDTH));
+
   return lines.join('\n');
 };
+
+/**
+ * Sends the receipt to the connected Bluetooth printer using ESC/POS.
+ * Assumes the printer is already connected.
+ */
+const sendEscposReceipt = async (data: ReceiptData, paperWidth: '58' | '80') => {
+  const mod = loadEscpos();
+  if (!mod) return false;
+
+  const { BluetoothEscposPrinter: P } = mod;
+  const width = dotsForWidth(paperWidth);
+
+  try {
+    if (P.printerInit) await P.printerInit();
+    if (P.setWidth) await P.setWidth(width);
+
+    // Header — centered and enlarged
+    if (P.printerAlign) await P.printerAlign(P.ALIGN?.CENTER ?? 1);
+    if (P.printText) {
+      await P.printText(data.restaurant + '\n', {
+        encoding: 'UTF-8',
+        codepage: 0,
+        widthtimes: 1,
+        heigthtimes: 1,
+        fonttype: 1,
+      });
+    }
+    if (P.printerAlign) await P.printerAlign(P.ALIGN?.LEFT ?? 0);
+
+    // Body — normal size, left aligned
+    const body = buildReceiptText(data, paperWidth);
+    if (P.printText) {
+      await P.printText(body + '\n', {
+        encoding: 'UTF-8',
+        codepage: 0,
+        widthtimes: 0,
+        heigthtimes: 0,
+        fonttype: 0,
+      });
+    }
+
+    if (P.printAndFeed) await P.printAndFeed(3);
+    if (P.printText) await P.printText('\n\n\n', {});
+
+    return true;
+  } catch (err) {
+    console.warn('[printer] ESC/POS send failed', err);
+    return false;
+  }
+};
+
+/**
+ * Prints directly to the saved Bluetooth printer.
+ * Returns false when no printer is configured or the connection fails,
+ * so the caller can fall back to the system print dialog.
+ */
+export const printToBluetooth = async (data: ReceiptData): Promise<boolean> => {
+  const saved = await getSavedPrinter();
+  if (!saved) {
+    console.log('[printer] no Bluetooth printer configured — skipping direct print');
+    return false;
+  }
+
+  const mod = loadEscpos();
+  if (!mod) return false;
+
+  const permitted = await requestBluetoothPermissions();
+  if (!permitted) {
+    console.warn('[printer] Bluetooth permission not granted — cannot print directly');
+    return false;
+  }
+
+  const connected = await connectPrinter(saved.address);
+  if (!connected) return false;
+
+  return await sendEscposReceipt(data, saved.width);
+};
+
+/* ------------------------------------------------------------------ *
+ * Test print (used by the printer settings screen)
+ * ------------------------------------------------------------------ */
+
+export const printTestReceipt = async (): Promise<{ ok: boolean; message: string }> => {
+  const saved = await getSavedPrinter();
+  if (!saved) {
+    return { ok: false, message: 'No printer selected yet.' };
+  }
+
+  const mod = loadEscpos();
+  if (!mod) {
+    return { ok: false, message: 'Bluetooth module not available in this build.' };
+  }
+
+  const permitted = await requestBluetoothPermissions();
+  if (!permitted) {
+    return { ok: false, message: 'Bluetooth permission denied.' };
+  }
+
+  const connected = await connectPrinter(saved.address);
+  if (!connected) {
+    return { ok: false, message: `Could not connect to ${saved.name}. Is it switched on and in range?` };
+  }
+
+  const sample: ReceiptData = {
+    restaurant: 'PRINTER TEST',
+    tableLabel: saved.name,
+    dateLabel: new Date().toLocaleString(),
+    items: [
+      { name: 'Test item', quantity: 1, price: 100 },
+      { name: 'Second item', quantity: 2, price: 50 },
+    ],
+    subtotal: 200,
+    taxEnabled: true,
+    tax: 14,
+    total: 214,
+  };
+
+  const ok = await sendEscposReceipt(sample, saved.width);
+  return {
+    ok,
+    message: ok ? 'Test receipt sent to the printer.' : 'Connected, but sending data failed.',
+  };
+};
+
+/* ------------------------------------------------------------------ *
+ * System print dialog fallback (HTML)
+ * ------------------------------------------------------------------ */
 
 const escapeHtml = (value: string) =>
   value
@@ -133,10 +499,10 @@ const buildReceiptHtml = (data: ReceiptData) => {
     '.center { text-align: center; }',
     '.bold { font-weight: bold; }',
     '.receipt {',
-      '  width: 100%;',
-      '  padding: 30px;',
-      '  box-sizing: border-box;',
-      '  min-height: 1800px;', // forces long receipt so Android doesn't shrink content
+    '  width: 100%;',
+    '  padding: 30px;',
+    '  box-sizing: border-box;',
+    '  min-height: 1800px;',
     '}',
     '.title { font-size: 62px; font-weight: bold; }',
     '.subtitle { font-size: 42px; }',
@@ -198,65 +564,20 @@ const buildReceiptHtml = (data: ReceiptData) => {
   );
 };
 
-const tryBluetoothPrint = async (text: string) => {
-  const printerAddress = process.env.EXPO_PUBLIC_BLUETOOTH_PRINTER_ADDRESS?.trim();
-  if (!printerAddress) {
-    console.log('Bluetooth printer: no EXPO_PUBLIC_BLUETOOTH_PRINTER_ADDRESS set — skipping Bluetooth route');
-    return false;
-  }
-
-  console.log(`Bluetooth printer: address=${printerAddress}, attempting print...`);
-
-  // The react-native-bluetooth-escpos-printer package must be installed
-  // and the app built as a dev client / standalone APK (not Expo Go).
-  let BluetoothManager: any = null;
-  let BluetoothEscposPrinter: any = null;
-
-  try {
-    const mod = require('react-native-bluetooth-escpos-printer');
-    BluetoothManager = mod?.BluetoothManager ?? null;
-    BluetoothEscposPrinter = mod?.BluetoothEscposPrinter ?? null;
-  } catch (importErr) {
-    console.warn(
-      'Bluetooth print skipped: react-native-bluetooth-escpos-printer not found.',
-      'Install it and build a dev client. Falling back to system print dialog.',
-      importErr
-    );
-    return false;
-  }
-
-  if (!BluetoothManager || !BluetoothEscposPrinter) {
-    console.warn(
-      'Bluetooth print skipped: module loaded but BluetoothManager/BluetoothEscposPrinter missing.'
-    );
-    return false;
-  }
-
-  try {
-    if (BluetoothManager.enableBluetooth) {
-      await BluetoothManager.enableBluetooth();
-    }
-    if (BluetoothManager.connect) {
-      await BluetoothManager.connect(printerAddress);
-    }
-    if (BluetoothEscposPrinter.printText) {
-      await BluetoothEscposPrinter.printText(text, {});
-      console.log('Bluetooth print succeeded');
-      return true;
-    }
-  } catch (error) {
-    console.warn('Bluetooth print failed:', error);
-  }
-
-  console.log('Bluetooth print unavailable — falling back to system print dialog');
-  return false;
-};
+/* ------------------------------------------------------------------ *
+ * Public entry point used across the app
+ *
+ * Order of preference:
+ *   1. Direct Bluetooth ESC/POS print to the saved printer
+ *   2. Android system print dialog (expo-print) as a fallback
+ * ------------------------------------------------------------------ */
 
 export const printReceipt = async (data: ReceiptData) => {
-  const text = buildReceiptText(data);
-  const printed = await tryBluetoothPrint(text);
-  if (printed) return;
+  const printedDirectly = await printToBluetooth(data);
+  if (printedDirectly) return;
 
   const html = buildReceiptHtml(data);
   await Print.printAsync({ html });
 };
+
+export { buildReceiptText, buildReceiptHtml };

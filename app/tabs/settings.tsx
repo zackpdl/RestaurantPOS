@@ -1,6 +1,8 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView } from 'react-native';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Printer } from 'lucide-react-native';
 
 interface MenuItem {
   id: string;
@@ -10,6 +12,7 @@ interface MenuItem {
 }
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [newItem, setNewItem] = useState({
     id: '',
@@ -54,6 +57,16 @@ export default function SettingsScreen() {
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Settings</Text>
+
+      <TouchableOpacity
+        style={styles.printerRow}
+        onPress={() => router.push('/printer-settings')}>
+        <Printer size={22} color="#4CAF50" />
+        <View style={styles.printerRowText}>
+          <Text style={styles.printerRowTitle}>Receipt Printer</Text>
+          <Text style={styles.printerRowSubtitle}>Scan, connect, and print a test receipt</Text>
+        </View>
+      </TouchableOpacity>
       
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Add Menu Item</Text>
@@ -139,6 +152,28 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 20,
+  },
+  printerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#333',
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 24,
+  },
+  printerRowText: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  printerRowTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  printerRowSubtitle: {
+    color: '#888',
+    fontSize: 12,
+    marginTop: 2,
   },
   section: {
     marginBottom: 24,
