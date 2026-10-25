@@ -1,10 +1,10 @@
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { saveOrder } from '../../../lib/pos/orderUtils';
 import { loadSelectedRestaurant } from '../../../lib/pos/storage';
 import { printReceipt } from '../../../lib/pos/printer';
+import { loadMenu } from '../../../lib/pos/menuStore';
 
 interface MenuItem {
   id: string;
@@ -31,10 +31,10 @@ export default function DineInOrderScreen() {
 
   const loadMenuItems = async () => {
     try {
-      const savedItems = await AsyncStorage.getItem('menuItems');
-      if (savedItems) {
-        setMenuItems(JSON.parse(savedItems));
-      }
+      const restaurant = await loadSelectedRestaurant();
+      if (!restaurant) return;
+      const items = await loadMenu(restaurant);
+      setMenuItems(items);
     } catch (error) {
       console.error('Error loading menu items:', error);
     }

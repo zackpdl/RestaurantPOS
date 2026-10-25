@@ -15,12 +15,6 @@ export default function RootLayout() {
           headerShown: false 
         }} 
       />
-      <Stack.Screen 
-        name="printer-settings" 
-        options={{ 
-          headerShown: false 
-        }} 
-      />
     </Stack>
   );
 }

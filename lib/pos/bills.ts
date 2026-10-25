@@ -55,9 +55,10 @@ export const calculateTotals = (items: BillItem[], taxEnabled: boolean) => {
 
 export const fetchBills = async (
   restaurant: string,
-  options?: { includeClosed?: boolean }
+  options?: { includeClosed?: boolean; limit?: number }
 ): Promise<Bill[]> => {
   const includeClosed = options?.includeClosed ?? true;
+  const limit = options?.limit ?? 50;
   try {
     let query = supabase
       .from('bills')
@@ -68,7 +69,7 @@ export const fetchBills = async (
       query = query.or('is_closed.is.null,is_closed.eq.false');
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await query.order('created_at', { ascending: false }).limit(limit);
 
     if (error) throw error;
     const bills = (data as Bill[]) ?? [];
@@ -197,10 +198,7 @@ export const fetchLatestOpenBillForTable = async (
     .select('*')
     .eq('restaurant', restaurant)
     .eq('table_number', tableNumber)
-    .or('is_closed.is.null,is_closed.eq.false')
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .or('is_closed.is.null,is_closed.eq.false');
 
   if (normalizedLabel) {
     query = query.eq('table_label', normalizedLabel);
@@ -208,7 +206,7 @@ export const fetchLatestOpenBillForTable = async (
     query = query.is('table_label', null);
   }
 
-  const { data, error } = await query;
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(1).maybeSingle();
 
   if (error) throw error;
   return data ? (data as Bill) : null;
